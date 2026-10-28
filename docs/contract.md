@@ -94,8 +94,8 @@ Response 200:
 | --- | --- | --- |
 | `device_code` | string | Opaque secret for polling, at most 128 characters. The client MUST NOT show or log it. |
 | `user_code` | string | `XXXX-XXXX`: eight characters from `0123456789BCDFGHJKMNPQRSTVWXYZ` (Crockford base32 without vowels), a hyphen after the fourth. The client shows it as given. |
-| `verification_uri` | string | `https://longlines.io/relay/approve` in production. |
-| `verification_uri_complete` | string | `verification_uri` with `?code=<user_code>`. The client opens this in the default browser. |
+| `verification_uri` | string | `https://longlines.io/relay` in production: where a user types the code by hand. The client shows it without the scheme ("Go to longlines.io/relay and enter the code."). |
+| `verification_uri_complete` | string | The approval page with the code filled in, `https://longlines.io/relay/approve?code=<user_code>` in production. The client opens this in the default browser. |
 | `expires_in` | integer | Seconds until the pairing expires (600, ten minutes). |
 | `interval` | integer | Minimum seconds between polls (5). |
 
@@ -119,7 +119,7 @@ Content-Type: application/json
 {
   "device_code": "5c6f2b1e0f7a4c0f9e3b8d2a61c4e7f0b9a3d5e8c1f2a4b6",
   "user_code": "WDJB-MJHT",
-  "verification_uri": "https://longlines.io/relay/approve",
+  "verification_uri": "https://longlines.io/relay",
   "verification_uri_complete": "https://longlines.io/relay/approve?code=WDJB-MJHT",
   "expires_in": 600,
   "interval": 5
@@ -496,8 +496,9 @@ Rate limits:
   in fixed one-minute windows. A request whose items would take the window past 120 is refused
   whole with 429 and none of its items is applied. Refused requests MAY count toward the
   window.
-- Every route is also limited per client IP; `POST /device/start` most tightly. The per-IP
-  limits are the server's to set and may change.
+- `POST /device/start` and `POST /device/token` are also limited per client IP,
+  `POST /device/start` most tightly; `GET /me` and `POST /contacts` are also limited in requests
+  per token, never per IP. These limits are the server's to set and may change.
 - A 429 MUST carry `Retry-After` as an integer number of seconds. A client that cannot read it
   MUST wait 60 seconds.
 
