@@ -15,6 +15,7 @@ pub mod settings;
 pub mod source_filter;
 pub mod state;
 pub mod status;
+pub mod upstream;
 
 /// The core crate's version. The app passes its own version to the client; this is the default.
 pub const RELAY_VERSION: &str = env!("CARGO_PKG_VERSION");
