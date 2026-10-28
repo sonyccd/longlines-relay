@@ -5,7 +5,8 @@
 
 use std::path::Path;
 
-use tracing_appender::non_blocking::WorkerGuard;
+/// Keep the value [`init`] returns alive for the life of the process.
+pub use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;

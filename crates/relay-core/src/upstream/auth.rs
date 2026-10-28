@@ -77,6 +77,56 @@ impl Pending {
     }
 }
 
+/// The device name sent with `POST /device/start`: the computer's host name, without the
+/// `.local` suffix macOS adds, cut to the contract's 64 characters. Never empty.
+pub fn device_name_from(host_name: &str) -> String {
+    let name = host_name.trim();
+    let name = name
+        .strip_suffix(".local")
+        .or_else(|| name.strip_suffix(".localdomain"))
+        .unwrap_or(name)
+        .trim();
+    let name: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(super::client::MAX_DEVICE_NAME)
+        .collect();
+    if name.is_empty() {
+        FALLBACK_DEVICE_NAME.to_string()
+    } else {
+        name
+    }
+}
+
+/// The device name when the host name is empty. Shown on the approval page.
+pub const FALLBACK_DEVICE_NAME: &str = "Computer";
+
+/// True when `url` may be opened in the user's browser: https, or http to this computer for
+/// local development. The URL comes from the server, so anything else is refused.
+pub fn browser_url_ok(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty()
+        || authority.contains('@')
+        || url.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return false;
+    }
+    match scheme {
+        "https" => true,
+        "http" => {
+            let host = match authority.rsplit_once(':') {
+                Some((host, port)) if port.bytes().all(|b| b.is_ascii_digit()) => host,
+                _ => authority,
+            };
+            matches!(host, "127.0.0.1" | "localhost" | "[::1]")
+        }
+        _ => false,
+    }
+}
+
 fn failure_for(error: &ClientError) -> PairingFailure {
     match error {
         ClientError::Retry { .. } | ClientError::RateLimited { .. } => PairingFailure::Unreachable,
@@ -159,6 +209,38 @@ mod tests {
             serde_json::to_value(PairingView::Idle).unwrap(),
             serde_json::json!({"state": "idle"})
         );
+    }
+
+    #[test]
+    fn device_names() {
+        assert_eq!(device_name_from("SHACK-PC"), "SHACK-PC");
+        assert_eq!(
+            device_name_from(" Brads-MacBook-Pro.local\n"),
+            "Brads-MacBook-Pro"
+        );
+        assert_eq!(device_name_from("shack.localdomain"), "shack");
+        assert_eq!(device_name_from(""), FALLBACK_DEVICE_NAME);
+        assert_eq!(device_name_from(".local"), FALLBACK_DEVICE_NAME);
+        assert_eq!(device_name_from(&"x".repeat(100)).chars().count(), 64);
+    }
+
+    #[test]
+    fn only_safe_urls_open_in_the_browser() {
+        assert!(browser_url_ok(
+            "https://longlines.io/relay/approve?code=KQ7M-X4PD"
+        ));
+        assert!(browser_url_ok("http://127.0.0.1:5173/relay/approve?code=A"));
+        assert!(browser_url_ok("http://localhost:5173/relay"));
+        assert!(!browser_url_ok("http://longlines.io/relay"));
+        assert!(!browser_url_ok("file:///etc/passwd"));
+        assert!(!browser_url_ok("javascript:alert(1)"));
+        assert!(!browser_url_ok("https://"));
+        assert!(!browser_url_ok("https://user@evil.example/"));
+        assert!(!browser_url_ok("http://localhost@evil.example/"));
+        assert!(!browser_url_ok("https://longlines.io/a b"));
+        assert!(!browser_url_ok("ms-settings:"));
+        assert!(browser_url_ok("http://[::1]:54321/relay"));
+        assert!(!browser_url_ok("http://[::2]/relay"));
     }
 
     #[test]
