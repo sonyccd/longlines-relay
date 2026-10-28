@@ -10,7 +10,7 @@ export function signedInView(overrides: Partial<ShellView> = {}): ShellView {
     ...structuredClone(SNAPSHOT),
     upstream: { state: "connected" },
     signed_in: true,
-    settings: { port: 12060, autostart: true },
+    settings: { port: 12060, autostart: true, cluster_enabled: true, cluster_port: 7373, cluster_lan: true },
     update: { state: "none" },
     version: "0.1.0",
     ...overrides,

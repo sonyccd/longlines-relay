@@ -99,6 +99,56 @@ pub async fn set_autostart(
     Ok(view::build(&app))
 }
 
+/// The DX cluster switch: on listens for logging software and opens the spots stream.
+#[tauri::command]
+pub async fn set_cluster_enabled(
+    app: AppHandle,
+    relay: State<'_, Relay>,
+    on: bool,
+) -> Result<ShellView, String> {
+    relay.engine.set_cluster_enabled(on).await;
+    relay.update_settings(|s| s.cluster_enabled = on)?;
+    emit_state(&app);
+    Ok(view::build(&app))
+}
+
+/// "Change port" on the DX cluster tab. Only the default port falls through to the next free
+/// one; a port chosen here is used as is, and one in use shows on the card.
+#[tauri::command]
+pub async fn set_cluster_port(
+    app: AppHandle,
+    relay: State<'_, Relay>,
+    port: u16,
+) -> Result<ShellView, String> {
+    if port == 0 {
+        return Err("Port must be from 1 to 65535.".into());
+    }
+    relay.engine.set_cluster_port(port).await;
+    relay.update_settings(|s| s.cluster_port = port)?;
+    emit_state(&app);
+    Ok(view::build(&app))
+}
+
+/// "Let other computers on this network connect".
+#[tauri::command]
+pub async fn set_cluster_lan(
+    app: AppHandle,
+    relay: State<'_, Relay>,
+    on: bool,
+) -> Result<ShellView, String> {
+    relay.engine.set_cluster_lan(on).await;
+    relay.update_settings(|s| s.cluster_lan = on)?;
+    emit_state(&app);
+    Ok(view::build(&app))
+}
+
+/// "Send test spot": one line to every program connected to the DX cluster.
+#[tauri::command]
+pub async fn send_test_spot(app: AppHandle, relay: State<'_, Relay>) -> Result<ShellView, String> {
+    relay.engine.send_test_spot().map_err(|e| e.to_string())?;
+    Ok(view::build(&app))
+}
+
 #[tauri::command]
 pub async fn open_setup_docs(app: AppHandle) {
     open_in_browser(&app, RELAY_SETUP_DOCS_URL);

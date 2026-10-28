@@ -155,6 +155,12 @@ export type UpdateView =
 export interface SettingsView {
   port: number;
   autostart: boolean;
+  /** The DX cluster switch. */
+  cluster_enabled: boolean;
+  /** The saved DX cluster port; the bound one is `cluster.port`. */
+  cluster_port: number;
+  /** "Let other computers on this network connect". */
+  cluster_lan: boolean;
 }
 
 export interface ShellView extends Snapshot {

@@ -9,7 +9,11 @@ vi.mock("@tauri-apps/api/event");
 
 describe("signed out", () => {
   it("says what the relay does and signs in", async () => {
-    const shell = mockTauri(signedOutView({ settings: { port: 12061, autostart: true } }));
+    const shell = mockTauri(
+      signedOutView({
+        settings: { port: 12061, autostart: true, cluster_enabled: false, cluster_port: 7373, cluster_lan: false },
+      }),
+    );
     const { user } = renderWithTheme(<App />);
 
     expect(await screen.findByRole("heading", { level: 2, name: "Sign in to start relaying" })).toBeVisible();

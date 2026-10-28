@@ -18,3 +18,9 @@ timestamp zone and `IsOriginal`), and mark them "captured" here with the logger 
 | `malformed-unclosed.xml` | Synthesized | The appendix's own unclosed `<run1run2>` typo, left in: not well-formed XML. |
 
 MacLoggerDX has no fixture: its field list is undocumented. Capture wanted.
+
+## DX cluster lines
+
+| File | Origin | Notes |
+| --- | --- | --- |
+| `dxspider-lines.txt` | Captured: the 23 `DX de` lines of `supabase/functions/_shared/__tests__/fixtures/dxcluster-telnet.txt` in `sonyccd/longlines` (G1FEF-2, DXSpider 1.57, 2026-10-12), copied byte for byte | Each line ends with DXSpider's two BEL characters and LF, as captured. `tests/cluster.rs` parses each into its parts and checks the relay formats it back byte for byte (CR LF, no BEL), as contract section 10.3 requires. |

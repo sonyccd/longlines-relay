@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use relay_core::engine::{Engine, EngineConfig};
 use relay_core::logging::WorkerGuard;
 use relay_core::settings::{Settings, SETTINGS_FILE};
+use relay_core::upstream::auth::device_name_from;
 use relay_core::upstream::client::{base_url_from_env, ClientConfig};
 use relay_core::upstream::token_store::{CachingTokenStore, KeyringTokenStore};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
@@ -165,7 +166,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let tokens = Arc::new(CachingTokenStore::new(KeyringTokenStore::new()));
     let client = ClientConfig::new(base_url_from_env(), version);
-    let config = EngineConfig::new(settings.port, data_dir.join(QUEUE_FILE), client, tokens);
+    let mut config = EngineConfig::new(settings.port, data_dir.join(QUEUE_FILE), client, tokens);
+    config.cluster_enabled = settings.cluster_enabled;
+    config.cluster_port = settings.cluster_port;
+    config.cluster_lan = settings.cluster_lan;
+    // The DX cluster's greeting names the computer until `GET /me` gives the paired name.
+    config.device_name = device_name_from(&gethostname::gethostname().to_string_lossy());
     // The engine spawns its tasks on Tauri's Tokio runtime.
     let engine = tauri::async_runtime::block_on(Engine::start(config))?;
 
@@ -224,6 +230,10 @@ pub fn run() {
             commands::set_test_mode,
             commands::set_port,
             commands::set_autostart,
+            commands::set_cluster_enabled,
+            commands::set_cluster_port,
+            commands::set_cluster_lan,
+            commands::send_test_spot,
             commands::open_setup_docs,
             commands::open_sign_up,
             commands::open_log_folder,
