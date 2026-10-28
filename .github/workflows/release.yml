@@ -1,0 +1,144 @@
+# Pushing a tag vX.Y.Z builds every platform and uploads the bundles and latest.json to a draft
+# release. Nothing reaches users until the draft is published by hand: the updater reads
+# releases/latest/download/latest.json, and a draft is never "latest". See README "Releasing".
+#
+# Actions are pinned to commit SHAs; the comment names the release each SHA is.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  draft:
+    name: Draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the tag matches the app version
+        run: |
+          app="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "v${app}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match the app version ${app} (src-tauri/tauri.conf.json)."
+            exit 1
+          fi
+      # One job makes the draft so the four builds upload to the same release instead of each
+      # racing to create one.
+      - name: Create the draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | .id" | head -n 1)"
+          if [ -z "${id}" ]; then
+            id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" -X POST \
+              -f tag_name="${GITHUB_REF_NAME}" \
+              -f name="Long Lines Relay ${GITHUB_REF_NAME}" \
+              -f body="Download the file for your computer below. Install steps, including how to open an unsigned app, are in the README." \
+              -F draft=true -F prerelease=false --jq .id)"
+          fi
+          echo "id=${id}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - name: macOS Intel
+            platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - name: Linux
+            platform: ubuntu-22.04
+            args: ""
+          - name: Windows
+            platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the Tauri system libraries
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev patchelf
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10
+        with:
+          toolchain: stable
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The updater key (README "Updater key"). Without it the build fails, because
+          # tauri.conf.json asks for signed updater artifacts.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.draft.outputs.release_id }}
+          # With the tag, latest.json links to this release's files rather than
+          # releases/latest/download.
+          tagName: ${{ github.ref_name }}
+          releaseDraft: true
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          retryAttempts: 1
+          args: ${{ matrix.args }}
+
+  check:
+    name: Check latest.json
+    needs: [draft, build]
+    runs-on: ubuntu-latest
+    steps:
+      # The four builds each add their platform to latest.json. Fail here, before anyone
+      # publishes the draft, if one is missing or points somewhere other than this release.
+      - name: Every platform is in latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
+        run: |
+          asset="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            --jq '.assets[] | select(.name == "latest.json") | .url')"
+          if [ -z "${asset}" ]; then
+            echo "::error::The draft release has no latest.json."
+            exit 1
+          fi
+          gh api -H "Accept: application/octet-stream" "${asset}" > latest.json
+          cat latest.json
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            url="$(jq -r --arg p "${platform}" '.platforms[$p].url // empty' latest.json)"
+            sig="$(jq -r --arg p "${platform}" '.platforms[$p].signature // empty' latest.json)"
+            if [ -z "${url}" ] || [ -z "${sig}" ]; then
+              echo "::error::latest.json has no signed entry for ${platform}. Re-run the failed build job."
+              exit 1
+            fi
+            case "${url}" in
+              */releases/download/"${GITHUB_REF_NAME}"/*) ;;
+              *)
+                echo "::error::latest.json's ${platform} entry points at ${url}, not this release."
+                exit 1
+                ;;
+            esac
+          done
