@@ -1,7 +1,9 @@
 [workspace]
-# The Tauri shell (src-tauri) joins this list when it is added; all logic lives in
-# crates/relay-core so it builds and tests without the Tauri system libraries.
-members = ["crates/relay-core"]
+# All logic lives in crates/relay-core so it builds and tests without the Tauri system
+# libraries; src-tauri is the thin desktop shell (it needs WebKitGTK to build on Linux).
+members = ["crates/relay-core", "src-tauri"]
+# A bare `cargo build` or `cargo test` covers the core only, so it works without WebKitGTK.
+default-members = ["crates/relay-core"]
 resolver = "2"
 
 [workspace.package]
