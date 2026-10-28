@@ -96,12 +96,12 @@ jobs:
           # tauri.conf.json asks for signed updater artifacts.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # The draft job made the release, so the action only uploads to it by id. tauri-action v1
+        # writes each latest.json URL as the asset's API address
+        # (https://api.github.com/repos/<repo>/releases/assets/<id>), which stays valid when the
+        # draft is published; the updater downloads it with Accept: application/octet-stream.
         with:
           releaseId: ${{ needs.draft.outputs.release_id }}
-          # With the tag, latest.json links to this release's files rather than
-          # releases/latest/download.
-          tagName: ${{ github.ref_name }}
-          releaseDraft: true
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           retryAttempts: 1
@@ -113,14 +113,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # The four builds each add their platform to latest.json. Fail here, before anyone
-      # publishes the draft, if one is missing or points somewhere other than this release.
+      # publishes the draft, if one is missing or points at a file that isn't in this release.
+      # tauri-action v1 writes the asset's API URL; a browser download URL is accepted too.
       - name: Every platform is in latest.json
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.draft.outputs.release_id }}
         run: |
-          asset="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
-            --jq '.assets[] | select(.name == "latest.json") | .url')"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > release.json
+          asset="$(jq -r '.assets[] | select(.name == "latest.json") | .url' release.json)"
           if [ -z "${asset}" ]; then
             echo "::error::The draft release has no latest.json."
             exit 1
@@ -134,11 +135,9 @@ jobs:
               echo "::error::latest.json has no signed entry for ${platform}. Re-run the failed build job."
               exit 1
             fi
-            case "${url}" in
-              */releases/download/"${GITHUB_REF_NAME}"/*) ;;
-              *)
-                echo "::error::latest.json's ${platform} entry points at ${url}, not this release."
-                exit 1
-                ;;
-            esac
+            if ! jq -e --arg u "${url}" \
+              'any(.assets[]; .url == $u or .browser_download_url == $u)' release.json > /dev/null; then
+              echo "::error::latest.json's ${platform} entry points at ${url}, which isn't a file of this release."
+              exit 1
+            fi
           done

@@ -599,3 +599,119 @@ async fn fake_logger_binary_drives_the_engine() {
     );
     engine.shutdown().await;
 }
+
+/// A `GET /me` that answers after `me_delay`, and a `POST /contacts` that stores everything.
+async fn slow_me_server(me_delay: Duration) -> wiremock::MockServer {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/me"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"callsign": CALLSIGN, "email": EMAIL}))
+                .set_delay(me_delay),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/contacts"))
+        .respond_with(|request: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            let results: Vec<_> = body["contacts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| serde_json::json!({"external_id": c["external_id"], "status": "created"}))
+                .collect();
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"results": results}))
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn an_upsert_that_ages_out_during_get_me_is_not_sent() {
+    // Logged 29:58 ago: fresh when it arrives, past 30 minutes once the slow GET /me answers.
+    let server = slow_me_server(Duration::from_secs(4)).await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = start_engine(&dir.path().join("q.sqlite3"), &server.uri(), signed_in()).await;
+    let logged = Utc::now() - TimeDelta::minutes(30) + TimeDelta::seconds(2);
+    let c = FakeContact::new("KK4PWJ", "W1AW", logged);
+    send(port(&engine), c.info_xml().as_bytes()).unwrap();
+    wait_until(&engine, "the contact queued", |s| {
+        s.stream.first().map(|r| &r.status) == Some(&RowStatus::Waiting)
+    })
+    .await;
+    let snap = wait_rows_final(&engine, 1).await;
+    assert_eq!(snap.stream[0].status, RowStatus::TooOld);
+    let sent = server
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path() == "/contacts")
+        .count();
+    assert_eq!(sent, 0, "an upsert past 30 minutes must never be sent");
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_late_401_for_an_old_token_keeps_the_new_one() {
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+    const OLD: &str = "ll_relay_oldoldoldoldoldoldoldoldoldoldoldoldoldoldoldoldold";
+    const NEW: &str = "ll_relay_newnewnewnewnewnewnewnewnewnewnewnewnewnewnewnewnew";
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/me"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"callsign": CALLSIGN, "email": EMAIL})),
+        )
+        .mount(&server)
+        .await;
+    // The old token was revoked in the web app; the 401 is slow to come back.
+    Mock::given(method("POST"))
+        .and(path("/contacts"))
+        .and(header("authorization", format!("Bearer {OLD}").as_str()))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_json(serde_json::json!({"error": "bad_token"}))
+                .set_delay(Duration::from_secs(2)),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/contacts"))
+        .and(header("authorization", format!("Bearer {NEW}").as_str()))
+        .respond_with(|request: &Request| {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            let id = body["contacts"][0]["external_id"].clone();
+            ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"results": [{"external_id": id, "status": "created"}]}),
+            )
+        })
+        .mount(&server)
+        .await;
+
+    let tokens = std::sync::Arc::new(MemoryTokenStore::with_token(Token::new(OLD)));
+    let dir = tempfile::tempdir().unwrap();
+    let engine = start_engine(&dir.path().join("q.sqlite3"), &server.uri(), tokens.clone()).await;
+    wait_signed_in(&engine).await;
+    send(
+        port(&engine),
+        contact("KK4PWJ", "W1AW").info_xml().as_bytes(),
+    )
+    .unwrap();
+    // The old token's request is out; the user signs in again before its 401 lands.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    engine.sign_in(Token::new(NEW)).await.unwrap();
+
+    let snap = wait_rows_final(&engine, 1).await;
+    assert_eq!(snap.stream[0].status, RowStatus::Sent);
+    assert_eq!(tokens.load().unwrap(), Some(Token::new(NEW)));
+    assert_eq!(engine.snapshot().upstream, UpstreamStatus::Connected);
+    engine.shutdown().await;
+}

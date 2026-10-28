@@ -420,7 +420,7 @@ impl Shared {
                 Ok(account)
             }
             Err(ClientError::SignedOut) => {
-                self.signed_out(SignOutReason::Revoked);
+                self.refused(&token);
                 Err(ClientError::SignedOut.into())
             }
             Err(e) => {
@@ -459,6 +459,20 @@ impl Shared {
         self.bus
             .publish(Event::Auth(AuthEvent::Account { account }));
         self.publish_feed();
+    }
+
+    /// Long Lines answered 401 to a request made with `token`. Signs out only when `token` is
+    /// still the stored one: a request that went out before the user signed in again must not
+    /// delete the new token (or sign it out).
+    fn refused(&self, token: &Token) {
+        if let Ok(Some(current)) = self.tokens.load() {
+            if current != *token {
+                tracing::info!("Long Lines refused a token that has since been replaced");
+                self.wake.notify_one();
+                return;
+            }
+        }
+        self.signed_out(SignOutReason::Revoked);
     }
 
     fn signed_out(&self, reason: SignOutReason) {
@@ -832,7 +846,7 @@ impl Shared {
                     self.publish_feed();
                 }
             }
-            Err(ClientError::SignedOut) => self.signed_out(SignOutReason::Revoked),
+            Err(ClientError::SignedOut) => self.refused(token),
             Err(ClientError::RateLimited { retry_after }) => {
                 let until =
                     now + TimeDelta::from_std(retry_after).unwrap_or(TimeDelta::seconds(60));
@@ -979,7 +993,7 @@ async fn sender(shared: Arc<Shared>) {
                     shared.account_ok(account);
                 }
                 Err(ClientError::SignedOut) => {
-                    shared.signed_out(SignOutReason::Revoked);
+                    shared.refused(&token);
                     continue;
                 }
                 Err(e) => {
@@ -1018,7 +1032,10 @@ async fn sender(shared: Arc<Shared>) {
             shared.idle(Some(wait)).await;
             continue;
         }
+        // Freshness again right before sending (contract 6.5): `GET /me` above can take up to
+        // the request timeout, long enough for a queued upsert to pass the 30-minute window.
         let now = Utc::now();
+        shared.expire(now);
         match shared.queue.next_batch(now, left.min(shared.max_batch)) {
             Ok(NextBatch::Empty) => shared.idle(None).await,
             Ok(NextBatch::WaitUntil(at)) => {

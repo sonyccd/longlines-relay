@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window. It calls only the relay's own commands and listens to its events; links, folders and updates go through Rust, so no plugin is exposed to the page.",
+  "description": "The main window. It calls only the relay's own commands (which need no permission) and listens to the shell's state event; links, folders and updates go through Rust. So the page may listen to and unlisten from events and nothing else: no emitting, and no window, webview, menu, tray, path or plugin access.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }
