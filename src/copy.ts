@@ -97,6 +97,87 @@ export const copy = {
     empty: "Contacts you log will show up here.",
   },
 
+  // The DX cluster tab (the RelayDxOff, RelayDxListening and RelayDxRunning mockups). The chip's
+  // label comes from the core.
+  cluster: {
+    heading: "Local DX cluster",
+    offText:
+      "Turn this on to show Long Lines spots in your logging software's bandmap. Your logging software connects to this computer as if it were a DX cluster.",
+    offNote: "Nothing listens on this computer while it's off.",
+    noSpots: "No spots sent yet",
+    lastSpot: (ago: string, today: number) =>
+      `Last spot sent ${ago} · ${today} ${today === 1 ? "spot" : "spots"} today`,
+    programs: (n: number) => (n === 0 ? "No programs connected" : `${n} ${n === 1 ? "program" : "programs"} connected`),
+    noDestination:
+      "No destination sends spots to this computer yet. In Long Lines, add a Local DX cluster destination and choose this relay.",
+    addDestination: "Add destination",
+    details: "Connection details for your logging software",
+    address: "Address",
+    port: "Port",
+    thisComputer: "This computer",
+    otherComputers: "Other computers",
+    copyAddress: (address: string) => `Copy address ${address}`,
+    copyPort: (port: number) => `Copy port ${port}`,
+    copyCallsign: (callsign: string) => `Copy callsign ${callsign}`,
+    // Invented: the mockups draw no confirmation after a copy.
+    copied: "Copied",
+    lan: "Let other computers on this network connect",
+    lanNote: "Anyone on your network can connect while this is on.",
+    sendTest: "Send test spot",
+    changePort: "Change port",
+    // Invented: the mockups draw the default port only.
+    portMoved: (saved: number, bound: number) =>
+      `Port ${saved} is in use by another program, so the relay listens on port ${bound}. Use port ${bound} in your logging software.`,
+    // The title is the plan's; the rest is invented.
+    scopeMissingTitle: "Sign in again to use the DX cluster",
+    scopeMissingText:
+      "This computer was signed in before the relay could receive spots. Sign in again and select Allow in your browser.",
+    signInAgain: "Sign in again",
+    // Invented: the mockups draw the stream connected only.
+    retrying: (left: string) => `Couldn't reach Long Lines for spots. Trying again in ${left}.`,
+    sent: {
+      heading: "Spots sent",
+      subtitle: "What the relay sent to your logging software, newest first.",
+      test: "Test",
+    },
+  },
+
+  // "Set up logging software" on the DX cluster tab (the RelayDxSetup mockup, without its
+  // "If 127.0.0.1 won't connect" line: plan decision 6).
+  dxSetup: {
+    back: "Back",
+    intro:
+      "Your logging software connects to the relay as if it were a DX cluster. Matched spots then show up in its bandmap.",
+    software: "Logging software",
+    n1mm: "N1MM Logger+",
+    other: "Other software",
+    addressHeading: "Cluster address",
+    callsign: "Callsign, if asked",
+    stepsHeading: "Steps",
+    steps: {
+      n1mm: ["Open the Telnet window in N1MM Logger+.", "Add a new cluster with the address and port above."],
+      // Invented: the mockup draws the N1MM Logger+ tab only.
+      other: [
+        "Open the DX cluster or Telnet settings in your logging software.",
+        "Add a new cluster with the address and port above.",
+      ],
+    },
+    connect: "Connect to it.",
+    // Plan decision 6: shown only while other computers may connect.
+    lanAddress: (address: string) => `Other computers on your network use ${address}.`,
+    check: "Check that it works.",
+    checkText: "Send a test spot. It should show up in the bandmap.",
+    // Invented: the mockup draws no confirmation.
+    testSent: "Test spot sent.",
+    testFailed: "Couldn't send the test spot. Check that the DX cluster is on.",
+    filters: {
+      n1mm: "N1MM Logger+ applies its own spot filters and band limits. If a spot doesn't show up, check those first.",
+      // Invented.
+      other:
+        "Your logging software applies its own spot filters and band limits. If a spot doesn't show up, check those first.",
+    },
+  },
+
   // Invented: the brief lists the settings (UDP port, "Start when I log in") but no screen. The
   // tab mockups draw none either; the card stays at the foot of the Contacts tab.
   settings: {

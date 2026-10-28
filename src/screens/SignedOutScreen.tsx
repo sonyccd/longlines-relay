@@ -5,24 +5,11 @@ import Button from "@mui/material/Button";
 import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { styled } from "@mui/material/styles";
 import type { Run } from "../App";
+import { StepNumber } from "../components/StepNumber";
 import { copy } from "../copy";
 import { relay } from "../lib/relay";
 import type { ShellView } from "../lib/types";
-
-/** The numbered circle before each step. */
-const StepNumber = styled("span")(({ theme }) => ({
-  flex: "none",
-  width: 28,
-  height: 28,
-  borderRadius: "50%",
-  border: `1px solid ${theme.palette.divider}`,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  ...theme.typography.subtitle2,
-}));
 
 /** Screen 1: what the relay does, and Sign in with Long Lines. */
 export function SignedOutScreen({ view, run }: { view: ShellView; run: Run }) {

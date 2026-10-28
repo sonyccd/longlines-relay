@@ -17,7 +17,13 @@ export function SettingsCard({ settings, version, run }: { settings: SettingsVie
       <CardContent>
         <Stack spacing={2}>
           <CardHeading id="settings-heading" title={copy.settings.heading} />
-          <PortField key={settings.port} id="settings-port" port={settings.port} run={run} />
+          <PortField
+            key={settings.port}
+            id="settings-port"
+            label={copy.settings.port}
+            port={settings.port}
+            onChange={(port) => run(() => relay.setPort(port))}
+          />
           <FormControlLabel
             control={
               <Checkbox

@@ -28,6 +28,9 @@ pub const RELAY_SETUP_DOCS_URL: &str =
     "https://github.com/sonyccd/longlines-relay/blob/main/docs/loggers.md";
 /// "Create one on Long Lines". The web app's sign-in page has the Create account tab.
 pub const SIGN_UP_URL: &str = "https://longlines.io/signin";
+/// "Add destination" on the DX cluster tab: the web app's new-destination page, on its Local DX
+/// cluster type.
+pub const ADD_DESTINATION_URL: &str = "https://longlines.io/destinations/new?type=local_cluster";
 /// Passed by the login item so the relay starts in the tray without showing its window.
 pub const HIDDEN_ARG: &str = "--hidden";
 /// The one window's label (`tauri.conf.json`).
@@ -236,6 +239,7 @@ pub fn run() {
             commands::send_test_spot,
             commands::open_setup_docs,
             commands::open_sign_up,
+            commands::open_add_destination,
             commands::open_log_folder,
             commands::install_update,
             commands::open_update_page,

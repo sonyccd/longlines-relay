@@ -25,15 +25,20 @@ export function App() {
 
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <AppHeader signedIn={view?.signed_in ?? false} account={view?.account ?? null} run={run} />
-      {view === null ? (
-        <LinearProgress aria-label="Loading" />
-      ) : view.signed_in ? (
+      {/* Signed in, the main screen draws the header, since its setup screen has its own. */}
+      {view?.signed_in ? (
         <MainScreen view={view} run={run} />
-      ) : view.pairing.state === "waiting" ? (
-        <SigningInScreen pairing={view.pairing} run={run} />
       ) : (
-        <SignedOutScreen view={view} run={run} />
+        <>
+          <AppHeader signedIn={false} account={null} run={run} />
+          {view === null ? (
+            <LinearProgress aria-label="Loading" />
+          ) : view.pairing.state === "waiting" ? (
+            <SigningInScreen pairing={view.pairing} run={run} />
+          ) : (
+            <SignedOutScreen view={view} run={run} />
+          )}
+        </>
       )}
     </Box>
   );

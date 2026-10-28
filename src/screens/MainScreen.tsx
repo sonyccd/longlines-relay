@@ -4,12 +4,16 @@ import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import { useState, type ReactNode } from "react";
 import type { Run } from "../App";
+import { AppHeader } from "../components/AppHeader";
 import { ContactsCard } from "../components/ContactsCard";
+import { DxClusterCard } from "../components/DxClusterCard";
 import { FeedCard } from "../components/FeedCard";
 import { SettingsCard } from "../components/SettingsCard";
+import { SpotsSentList } from "../components/SpotsSentList";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { copy } from "../copy";
 import type { ShellView } from "../lib/types";
+import { DxSetupScreen } from "./DxSetupScreen";
 
 type TabId = "contacts" | "dx";
 
@@ -30,13 +34,20 @@ function Panel({ id, selected, children }: { id: TabId; selected: TabId; childre
 }
 
 /**
- * Signed in: the Contacts tab (the logging feed, Contacts seen and the settings) and the DX
- * cluster tab.
+ * Signed in: the header, then the Contacts tab (the logging feed, Contacts seen and the
+ * settings) and the DX cluster tab (the local DX cluster and Spots sent). "Set up logging
+ * software" on the DX cluster tab replaces all of it with the setup screen until Back, which
+ * returns to the DX cluster tab.
  */
 export function MainScreen({ view, run }: { view: ShellView; run: Run }) {
   const [tab, setTab] = useState<TabId>("contacts");
+  const [settingUp, setSettingUp] = useState(false);
+  if (settingUp) {
+    return <DxSetupScreen cluster={view.cluster} account={view.account} run={run} onBack={() => setSettingUp(false)} />;
+  }
   return (
     <>
+      <AppHeader signedIn account={view.account} run={run} />
       <Box sx={{ px: 1, borderBottom: 1, borderColor: "divider" }}>
         <Tabs value={tab} onChange={(_, next: TabId) => setTab(next)} aria-label={copy.tabs.label}>
           <Tab value="contacts" label={copy.tabs.contacts} id="tab-contacts" aria-controls="panel-contacts" />
@@ -51,9 +62,17 @@ export function MainScreen({ view, run }: { view: ShellView; run: Run }) {
           <SettingsCard settings={view.settings} version={view.version} run={run} />
         </Stack>
       </Panel>
-      {/* The DX cluster tab's content comes with the local DX cluster. */}
       <Panel id="dx" selected={tab}>
-        {null}
+        <Stack spacing={2}>
+          <DxClusterCard
+            cluster={view.cluster}
+            sent={view.sent}
+            settings={view.settings}
+            run={run}
+            onSetUp={() => setSettingUp(true)}
+          />
+          {view.cluster.enabled && view.sent.length > 0 && <SpotsSentList rows={view.sent} />}
+        </Stack>
       </Panel>
     </>
   );

@@ -1,5 +1,5 @@
 import snapshot from "./fixtures/snapshot.json";
-import type { FeedView, ShellView, Snapshot } from "../lib/types";
+import type { ClusterView, FeedView, ShellView, Snapshot } from "../lib/types";
 
 /** The core's snapshot fixture (written by crates/relay-core/tests/ui_shape.rs). */
 export const SNAPSHOT: Snapshot = snapshot as Snapshot;
@@ -30,4 +30,8 @@ export function signedOutView(overrides: Partial<ShellView> = {}): ShellView {
 
 export function feed(overrides: Partial<FeedView>): FeedView {
   return { ...structuredClone(SNAPSHOT.feed), ...overrides };
+}
+
+export function cluster(overrides: Partial<ClusterView>): ClusterView {
+  return { ...structuredClone(SNAPSHOT.cluster), ...overrides };
 }

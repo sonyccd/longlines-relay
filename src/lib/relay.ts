@@ -22,6 +22,7 @@ export const relay = {
   sendTestSpot: () => invoke<ShellView>("send_test_spot"),
   openSetupDocs: () => invoke<void>("open_setup_docs"),
   openSignUp: () => invoke<void>("open_sign_up"),
+  openAddDestination: () => invoke<void>("open_add_destination"),
   openLogFolder: () => invoke<void>("open_log_folder"),
   installUpdate: () => invoke<void>("install_update"),
   openUpdatePage: () => invoke<void>("open_update_page"),
