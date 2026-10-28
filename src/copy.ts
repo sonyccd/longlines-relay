@@ -106,5 +106,8 @@ export const copy = {
     installing: (v: string) => `Installing version ${v}. The relay restarts when it's done.`,
     failed: (v: string) => `Couldn't install version ${v}.`,
     retry: "Try again",
+    // Invented: a .deb install can't replace itself, so the banner links to the release.
+    manual: (v: string) => `Version ${v} of the relay is available. Download the new package to install it.`,
+    download: "Download",
   },
 } as const;

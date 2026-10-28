@@ -114,6 +114,12 @@ pub async fn open_log_folder(app: AppHandle) {
     crate::open_log_folder(&app);
 }
 
+/// Opens the release page of an update this copy can't install itself (.deb).
+#[tauri::command]
+pub async fn open_update_page(app: AppHandle) -> Result<(), String> {
+    crate::updates::open_release_page(&app)
+}
+
 /// Installs the offered update and restarts.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {

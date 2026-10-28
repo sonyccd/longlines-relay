@@ -20,6 +20,7 @@ export const relay = {
   openSignUp: () => invoke<void>("open_sign_up"),
   openLogFolder: () => invoke<void>("open_log_folder"),
   installUpdate: () => invoke<void>("install_update"),
+  openUpdatePage: () => invoke<void>("open_update_page"),
   onState: (handler: (view: ShellView) => void): Promise<UnlistenFn> =>
     listen<ShellView>(STATE_EVENT, (event) => handler(event.payload)),
 };

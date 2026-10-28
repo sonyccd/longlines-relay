@@ -228,6 +228,7 @@ pub fn run() {
             commands::open_sign_up,
             commands::open_log_folder,
             commands::install_update,
+            commands::open_update_page,
         ])
         .build(tauri::generate_context!())
         .expect("Long Lines Relay couldn't start");

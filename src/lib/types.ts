@@ -83,6 +83,8 @@ export interface Snapshot {
 export type UpdateView =
   | { state: "none" }
   | { state: "available"; version: string }
+  /** A .deb install can't update itself; the page links to the release (`url`, opened by the shell). */
+  | { state: "manual"; version: string; url: string }
   | { state: "installing"; version: string }
   | { state: "failed"; version: string };
 
