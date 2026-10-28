@@ -7,6 +7,7 @@ pub mod bands;
 pub mod callsign;
 pub mod external_id;
 pub mod freshness;
+pub mod n1mm;
 pub mod status;
 
 /// The core crate's version. The app passes its own version to the client; this is the default.

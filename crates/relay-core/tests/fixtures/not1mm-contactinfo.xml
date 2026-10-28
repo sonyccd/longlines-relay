@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<contactinfo>
+  <app>NOT1MM</app>
+  <contestname>GENERAL LOGGING</contestname>
+  <contestnr>1</contestnr>
+  <timestamp>2026-10-28 21:14:00</timestamp>
+  <mycall>KK4PWJ</mycall>
+  <band>14</band>
+  <rxfreq>1402500</rxfreq>
+  <txfreq>1402500</txfreq>
+  <operator>KK4PWJ</operator>
+  <mode>CW</mode>
+  <call>W1AW</call>
+  <countryprefix>K</countryprefix>
+  <wpxprefix>W1</wpxprefix>
+  <stationprefix>KK4PWJ</stationprefix>
+  <continent>NA</continent>
+  <snt>599</snt>
+  <sntnr>0</sntnr>
+  <rcv>599</rcv>
+  <rcvnr>0</rcvnr>
+  <gridsquare></gridsquare>
+  <exchange1></exchange1>
+  <section></section>
+  <comment></comment>
+  <qth></qth>
+  <name></name>
+  <power></power>
+  <misctext></misctext>
+  <zone>5</zone>
+  <prec></prec>
+  <ck></ck>
+  <ismultiplier1>0</ismultiplier1>
+  <ismultiplier2>0</ismultiplier2>
+  <ismultiplier3>0</ismultiplier3>
+  <points>1</points>
+  <radionr>1</radionr>
+  <run1run2>1</run1run2>
+  <RoverLocation></RoverLocation>
+  <RadioInterfaced>1</RadioInterfaced>
+  <NetworkedCompNr>0</NetworkedCompNr>
+  <IsOriginal>True</IsOriginal>
+  <NetBiosName></NetBiosName>
+  <IsRunQSO>0</IsRunQSO>
+  <StationName>not1mm-pc</StationName>
+  <ID>6d0f8e2a91b34c7d8e5f0a1b2c3d4e5f</ID>
+  <IsClaimedQso>True</IsClaimedQso>
+</contactinfo>
