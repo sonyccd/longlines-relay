@@ -10,6 +10,10 @@ repository.workspace = true
 name = "relay_core"
 path = "src/lib.rs"
 
+[[bin]]
+name = "fake-logger"
+path = "src/bin/fake_logger.rs"
+
 [features]
 default = []
 # The OS credential store. Off by default so tests use the in-memory store and the
