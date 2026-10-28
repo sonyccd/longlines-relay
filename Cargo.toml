@@ -1,0 +1,13 @@
+[workspace]
+# All logic lives in crates/relay-core so it builds and tests without the Tauri system
+# libraries; src-tauri is the thin desktop shell (it needs WebKitGTK to build on Linux).
+members = ["crates/relay-core", "src-tauri"]
+# A bare `cargo build` or `cargo test` covers the core only, so it works without WebKitGTK.
+default-members = ["crates/relay-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/sonyccd/longlines-relay"

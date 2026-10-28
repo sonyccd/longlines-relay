@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Long Lines Relay",
+  "version": "0.1.0",
+  "mainBinaryName": "longlines-relay",
+  "identifier": "io.longlines.relay",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Long Lines Relay",
+        "width": 560,
+        "height": 760,
+        "minWidth": 400,
+        "minHeight": 480,
+        "visible": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "app", "dmg", "appimage", "deb"],
+    "createUpdaterArtifacts": true,
+    "category": "Utility",
+    "shortDescription": "Sends the contacts you log to Long Lines as spots",
+    "longDescription": "Long Lines Relay catches the contact broadcasts your logging software sends on this computer and posts each contact to Long Lines as a spot.",
+    "homepage": "https://github.com/sonyccd/longlines-relay",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI0QzREQTdFM0Y4ODU1MzEKUldReFZZZy9mdHJFSk5VdnRpcFArK2hGNHdydWlGSzBPTU1BNFZ3Vkc0MXNkRjBvYnZoWFR1STUK",
+      "endpoints": [
+        "https://github.com/sonyccd/longlines-relay/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

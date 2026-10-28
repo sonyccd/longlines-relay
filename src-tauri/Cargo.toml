@@ -1,0 +1,44 @@
+[package]
+name = "longlines-relay"
+description = "Long Lines Relay: sends the contacts you log to Long Lines as spots"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the library's name apart from the binary's (a Cargo limitation on
+# Windows, as the Tauri template notes).
+name = "longlines_relay_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+# Generates the context (config, icons, capabilities) the app embeds.
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Everything the relay does; this crate only wires it to the window. The OS credential store
+# holds the token.
+relay-core = { path = "../crates/relay-core", features = ["keyring"] }
+# The desktop shell: window, commands, events and the tray icon.
+tauri = { version = "2", features = ["tray-icon"] }
+# Opens the pairing page, the setup docs and the log folder with the system's default apps.
+tauri-plugin-opener = "2"
+# Relaunches the app after an update is installed.
+tauri-plugin-process = "2"
+# Command and event payloads.
+serde = { version = "1.0", features = ["derive"] }
+# tauri::generate_context! expands to serde_json calls.
+serde_json = "1.0"
+# The core engine runs on Tokio; the shell awaits it inside Tauri's Tokio runtime.
+tokio = { version = "1.54", features = ["rt-multi-thread", "sync", "time", "macros"] }
+# Logging into the core's rolling log file.
+tracing = "0.1"
+# The computer's name, sent as the pairing's device name.
+gethostname = "1"
+# Self-update from GitHub Releases (latest.json, signed with the updater key).
+tauri-plugin-updater = "2"
+# "Start when I log in".
+tauri-plugin-autostart = "2"
+# A second launch focuses the running window instead of binding the port twice.
+tauri-plugin-single-instance = "2"

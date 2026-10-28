@@ -1,0 +1,57 @@
+[package]
+name = "relay-core"
+description = "Long Lines Relay core: logger listener, parser, checks, queue and upstream client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "relay_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fake-logger"
+path = "src/bin/fake_logger.rs"
+
+[features]
+default = []
+# The OS credential store. Off by default so tests use the in-memory store and the
+# crate builds without a desktop session; the Tauri shell turns it on.
+keyring = ["dep:keyring"]
+
+[dependencies]
+# Async runtime: the UDP listener, the pipeline and the sender loop are tasks.
+tokio = { version = "1.54", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+# Tolerant reader for the N1MM-format XML packets.
+quick-xml = "0.42"
+# Settings, queue rows, API bodies and UI events are serde types.
+serde = { version = "1.0", features = ["derive"] }
+# JSON for the API, the settings file and queue row bodies.
+serde_json = "1.0"
+# HTTPS client for the Long Lines API, with rustls so no system OpenSSL is needed.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+# The outgoing queue on disk; bundled so no system SQLite is needed.
+rusqlite = { version = "0.41", features = ["bundled"] }
+# external_id fallback hash (contract 6.2).
+sha2 = "0.11"
+# UTC timestamps for contacts, freshness and backoff.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+# Structured logging.
+tracing = "0.1"
+# Daily rolling log file.
+tracing-appender = "0.2"
+# Formats tracing output and filters it by level.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# This machine's interface addresses, for the local-only source filter.
+if-addrs = "0.15"
+# Error enums.
+thiserror = "2.0"
+# OS credential store for the relay token (feature "keyring").
+keyring = { version = "4", optional = true }
+
+[dev-dependencies]
+# Mock Long Lines API for the integration tests.
+wiremock = "0.6"
+# Temporary directories for queue databases and settings files.
+tempfile = "3"

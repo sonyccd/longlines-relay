@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<contactinfo>
+	<app>N1MM</app>
+	<contestname>CWOPS</contestname>
+	<contestnr>73</contestnr>
+	<timestamp>2020-01-17 16:43:38</timestamp>
+	<mycall>W2XYZ</mycall>
+	<band>3.5</band>
+	<rxfreq>352519</rxfreq>
+	<txfreq>352519</txfreq>
+	<operator></operator>
+	<mode>CW</mode>
+	<call>W1AW</call>
+	<countryprefix>K</countryprefix>
+	<wpxprefix>W1</wpxprefix>
+	<stationprefix>W2XYZ</stationprefix>
+	<continent>NA</continent>
+	<snt>599</snt>
+	<sntnr>5</sntnr>
+	<rcv>599</rcv>
+	<rcvnr>0</rcvnr>
+	<gridsquare></gridsquare>
+	<exchange1></exchange1>
+	<section></section>
+	<comment></comment>
+	<qth></qth>
+	<name></name>
+	<power></power>
+	<misctext></misctext>
+	<zone>0</zone>
+	<prec></prec>
+	<ck>0</ck>
+	<ismultiplier1>0</ismultiplier1>
+	<ismultiplier2>0</ismultiplier2>
+	<ismultiplier3>1</ismultiplier3>
+	<points>1</points>
+	<radionr>1</radionr>
+	<run1run2>1</run1run2>
+	<RoverLocation></RoverLocation>
+	<RadioInterfaced>1</RadioInterfaced>
+	<NetworkedCompNr>0</NetworkedCompNr>
+	<IsOriginal>True</IsOriginal>
+	<NetBiosName></NetBiosName>
+	<IsRunQSO>0</IsRunQSO>
+	<StationName>CONTEST-PC</StationName>
+	<ID>f9ffac4fcd3e479ca86e137df1338531</ID>
+	<IsClaimedQso>1</IsClaimedQso>
+</contactinfo>

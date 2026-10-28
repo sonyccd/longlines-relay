@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<contactinfo>
+	<app>N1MM</app>
+	<contestname>DXLOG</contestname>
+	<contestnr>1</contestnr>
+	<timestamp>2026-10-28 21:14:00</timestamp>
+	<mycall>KK4PWJ</mycall>
+	<band>14,0</band>
+	<rxfreq>1402500</rxfreq>
+	<txfreq>1402500</txfreq>
+	<operator>KK4PWJ</operator>
+	<mode>CW</mode>
+	<call>W1AW</call>
+	<snt>599</snt>
+	<rcv>599</rcv>
+	<comment></comment>
+	<radionr>1</radionr>
+	<IsOriginal>True</IsOriginal>
+	<StationName>DXLOG-PC</StationName>
+	<ID>3b7c2e0d9a5f4c1e8d6b2a7f0e9c4d13</ID>
+</contactinfo>

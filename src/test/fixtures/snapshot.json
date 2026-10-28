@@ -1,0 +1,76 @@
+{
+  "account": {
+    "callsign": "KK4PWJ",
+    "email": "op@example.com"
+  },
+  "feed": {
+    "dropped_packets": 0,
+    "label": "Receiving",
+    "last_packet_at": "2026-10-28T14:22:02Z",
+    "listener": {
+      "port": 12060,
+      "state": "listening"
+    },
+    "mismatch": null,
+    "port": 12060,
+    "status": "receiving",
+    "test_mode": false
+  },
+  "pairing": {
+    "state": "idle"
+  },
+  "stream": [
+    {
+      "band": "40m",
+      "call": "W4ABC",
+      "frequency_hz": 7025000,
+      "id": 3,
+      "kind": "info",
+      "logged_at": "2026-10-28T14:22:00Z",
+      "mode": "CW",
+      "received_at": "2026-10-28T14:22:02Z",
+      "status": {
+        "kind": "sent"
+      },
+      "status_text": "Sent as a spot",
+      "time_utc": "14:22 UTC",
+      "title": "W4ABC · 40 m CW"
+    },
+    {
+      "band": null,
+      "call": "",
+      "frequency_hz": null,
+      "id": 2,
+      "kind": null,
+      "logged_at": null,
+      "mode": "",
+      "received_at": "2026-10-28T14:18:00Z",
+      "status": {
+        "kind": "unreadable"
+      },
+      "status_text": "Couldn't read packet",
+      "time_utc": "14:18 UTC",
+      "title": ""
+    },
+    {
+      "band": "15m",
+      "call": "K8QRS",
+      "frequency_hz": 21025000,
+      "id": 1,
+      "kind": "info",
+      "logged_at": "2026-10-28T14:09:00Z",
+      "mode": "CW",
+      "received_at": "2026-10-28T14:09:03Z",
+      "status": {
+        "kind": "mismatch",
+        "mycall": "K4XYZ"
+      },
+      "status_text": "Ignored. Logged as K4XYZ.",
+      "time_utc": "14:09 UTC",
+      "title": "K8QRS · 15 m CW"
+    }
+  ],
+  "upstream": {
+    "state": "signed_out"
+  }
+}

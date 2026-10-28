@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RadioInfo>
+	<app>N1MM</app>
+	<StationName>CONTEST-PC</StationName>
+	<RadioNr>1</RadioNr>
+	<Freq>352519</Freq>
+	<TXFreq>352519</TXFreq>
+	<Mode>CW</Mode>
+	<OpCall>W2XYZ</OpCall>
+	<IsRunning>False</IsRunning>
+	<FocusEntry>0</FocusEntry>
+	<EntryWindowHwnd>0</EntryWindowHwnd>
+	<Antenna>4</Antenna>
+	<Rotors></Rotors>
+	<FocusRadioNr>1</FocusRadioNr>
+	<IsStereo>False</IsStereo>
+	<IsSplit>False</IsSplit>
+	<ActiveRadioNr>1</ActiveRadioNr>
+	<IsTransmitting>False</IsTransmitting>
+	<FunctionKeyCaption></FunctionKeyCaption>
+	<RadioName>K3</RadioName>
+	<AuxAntSelected>-1</AuxAntSelected>
+	<AuxAntSelectedName></AuxAntSelectedName>
+	<IsConnected>True</IsConnected>
+</RadioInfo>
