@@ -91,7 +91,7 @@ Response 200:
 | `user_code` | string | `XXXX-XXXX`: eight characters from `0123456789BCDFGHJKMNPQRSTVWXYZ` (Crockford base32 without vowels), a hyphen after the fourth. The client shows it as given. |
 | `verification_uri` | string | `https://longlines.io/relay/approve` in production. |
 | `verification_uri_complete` | string | `verification_uri` with `?code=<user_code>`. The client opens this in the default browser. |
-| `expires_in` | integer | Seconds until the pairing expires (900). |
+| `expires_in` | integer | Seconds until the pairing expires (600, ten minutes). |
 | `interval` | integer | Minimum seconds between polls (5). |
 
 The server stores only a hash of `device_code`. Errors: 400 `invalid_request`, 429, 5xx.
@@ -116,7 +116,7 @@ Content-Type: application/json
   "user_code": "WDJB-MJHT",
   "verification_uri": "https://longlines.io/relay/approve",
   "verification_uri_complete": "https://longlines.io/relay/approve?code=WDJB-MJHT",
-  "expires_in": 900,
+  "expires_in": 600,
   "interval": 5
 }
 ```
