@@ -17,7 +17,7 @@ use crate::state::Account;
 /// The production base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.longlines.io/relay/v1";
 /// Overrides the base URL for development (for example the local Supabase stack).
-pub const BASE_URL_ENV: &str = "LONGLINES_RELAY_API_URL";
+pub const BASE_URL_ENV: &str = "LONGLINES_RELAY_API_BASE";
 /// The wait after a 429 whose `Retry-After` cannot be read.
 pub const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(60);
 /// The longest one request may take.

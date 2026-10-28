@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::state::{Account, FeedView, StreamRow, UpstreamStatus};
 use crate::status::RowStatus;
+use crate::upstream::auth::PairingView;
 
 /// Why the relay is signed out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -53,6 +54,8 @@ pub enum Event {
     Upstream(UpstreamStatus),
     /// Account changes.
     Auth(AuthEvent),
+    /// The sign-in screen changed.
+    Pairing(PairingView),
 }
 
 /// A cloneable handle to the broadcast channel.

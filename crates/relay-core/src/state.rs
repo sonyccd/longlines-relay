@@ -11,6 +11,7 @@ use crate::bands::band_label;
 use crate::listeners::ListenerStatus;
 use crate::n1mm::ContactKind;
 use crate::status::RowStatus;
+use crate::upstream::auth::PairingView;
 
 /// Contacts seen keeps this many rows.
 pub const STREAM_LIMIT: usize = 50;
@@ -185,6 +186,8 @@ pub struct Snapshot {
     pub account: Option<Account>,
     pub feed: FeedView,
     pub upstream: UpstreamStatus,
+    /// The sign-in screen.
+    pub pairing: PairingView,
     /// Newest first.
     pub stream: Vec<StreamRow>,
 }
@@ -200,6 +203,7 @@ struct Inner {
     test_mode: bool,
     account: Option<Account>,
     upstream: UpstreamStatus,
+    pairing: PairingView,
 }
 
 /// Shared, lock-protected app state.
@@ -227,6 +231,7 @@ impl RelayState {
                 test_mode: false,
                 account: None,
                 upstream: UpstreamStatus::SignedOut,
+                pairing: PairingView::Idle,
             }),
         }
     }
@@ -336,6 +341,18 @@ impl RelayState {
         self.lock().upstream.clone()
     }
 
+    /// Sets the sign-in screen's state; returns true when it changed.
+    pub fn set_pairing(&self, view: PairingView) -> bool {
+        let mut inner = self.lock();
+        let changed = inner.pairing != view;
+        inner.pairing = view;
+        changed
+    }
+
+    pub fn pairing(&self) -> PairingView {
+        self.lock().pairing.clone()
+    }
+
     pub fn feed_view(&self, dropped_packets: u64) -> FeedView {
         let inner = self.lock();
         let receiving = match (inner.listening_since, inner.last_packet_at) {
@@ -370,6 +387,7 @@ impl RelayState {
             feed: self.feed_view(dropped_packets),
             account: self.account(),
             upstream: self.upstream(),
+            pairing: self.pairing(),
             stream: self.rows(),
         }
     }
@@ -478,6 +496,15 @@ mod tests {
             email: "op@example.com".into(),
         }));
         assert_eq!(state.feed_view(0).mismatch, None);
+    }
+
+    #[test]
+    fn pairing_starts_idle_and_reports_changes() {
+        let state = RelayState::new();
+        assert_eq!(state.pairing(), PairingView::Idle);
+        assert!(state.set_pairing(PairingView::Starting));
+        assert!(!state.set_pairing(PairingView::Starting));
+        assert_eq!(state.snapshot(0).pairing, PairingView::Starting);
     }
 
     #[test]

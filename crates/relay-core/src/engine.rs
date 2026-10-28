@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -25,6 +26,7 @@ use crate::n1mm::{self, parse_timestamp, ContactKind, LoggedContact, Packet};
 use crate::source_filter::SourceFilter;
 use crate::state::{Account, RelayState, Snapshot, StreamRow, UpstreamStatus};
 use crate::status::{reasons, RowStatus};
+use crate::upstream::auth::{self, PairingFailure, PairingView};
 use crate::upstream::client::{ClientConfig, ClientError, ItemStatus, RejectReason, RelayClient};
 use crate::upstream::queue::{Backoff, DropReason, NextBatch, Queue, QueueError, QueueItem};
 use crate::upstream::token_store::{Token, TokenStore, TokenStoreError};
@@ -40,6 +42,8 @@ pub const ACCOUNT_REFRESH: Duration = Duration::from_secs(3600);
 pub const EDIT_WINDOW: Duration = Duration::from_secs(10);
 /// The sender wakes at least this often, to expire queued contacts while offline.
 pub const IDLE_TICK: Duration = Duration::from_secs(5);
+/// One second of the pairing protocol (`interval`, `expires_in`). Tests shorten it.
+pub const PAIRING_SECOND: Duration = Duration::from_secs(1);
 /// The longest callsign the server accepts.
 const MAX_CALL_LEN: usize = 64;
 /// The longest mode the server accepts.
@@ -64,6 +68,7 @@ pub struct EngineConfig {
     pub account_refresh: Duration,
     pub edit_window: Duration,
     pub idle_tick: Duration,
+    pub pairing_second: Duration,
 }
 
 impl EngineConfig {
@@ -85,6 +90,7 @@ impl EngineConfig {
             account_refresh: ACCOUNT_REFRESH,
             edit_window: EDIT_WINDOW,
             idle_tick: IDLE_TICK,
+            pairing_second: PAIRING_SECOND,
         }
     }
 }
@@ -125,6 +131,9 @@ struct Shared {
     account_refresh: Duration,
     edit_window: TimeDelta,
     idle_tick: Duration,
+    pairing_second: Duration,
+    /// Bumped by every sign-in start and cancel, so a stale attempt never shows.
+    pairing_attempt: AtomicU64,
 }
 
 /// The running relay core.
@@ -134,6 +143,8 @@ pub struct Engine {
     listener: Mutex<Arc<UdpListener>>,
     datagrams: mpsc::Sender<Datagram>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// The token poll of the sign-in in progress.
+    pairing_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Engine {
@@ -158,6 +169,8 @@ impl Engine {
             account_refresh: config.account_refresh,
             edit_window: TimeDelta::from_std(config.edit_window).unwrap_or(TimeDelta::seconds(10)),
             idle_tick: config.idle_tick,
+            pairing_second: config.pairing_second,
+            pairing_attempt: AtomicU64::new(0),
         });
         shared.restore_rows()?;
         if matches!(shared.tokens.load(), Ok(Some(_))) {
@@ -182,6 +195,7 @@ impl Engine {
             listener: Mutex::new(listener),
             datagrams: tx,
             tasks: Mutex::new(tasks),
+            pairing_task: Mutex::new(None),
         })
     }
 
@@ -223,23 +237,75 @@ impl Engine {
 
     /// Stores a freshly paired token and reads the account. A refused token is deleted again.
     pub async fn sign_in(&self, token: Token) -> Result<Account, SignInError> {
-        self.shared.tokens.save(&token)?;
-        match self.shared.client.me(&token).await {
-            Ok(account) => {
-                self.shared.account_ok(account.clone());
-                self.shared.wake.notify_one();
-                Ok(account)
+        self.shared.sign_in(token).await
+    }
+
+    /// Starts signing in: asks Long Lines for a code and polls for the token in the background.
+    /// Returns the waiting view (whose `verification_uri_complete` the shell opens in the
+    /// browser), or why it could not start. Starting again replaces an attempt in progress.
+    pub async fn start_sign_in(&self, device_name: &str) -> Result<PairingView, PairingFailure> {
+        self.abort_pairing_task();
+        let attempt = self.shared.pairing_attempt.fetch_add(1, Ordering::SeqCst) + 1;
+        self.shared.set_pairing(PairingView::Starting);
+        let started =
+            auth::start(&self.shared.client, device_name, self.shared.pairing_second).await;
+        if self.shared.pairing_attempt.load(Ordering::SeqCst) != attempt {
+            // Cancelled (or restarted) while the request was out.
+            return Ok(self.shared.state.pairing());
+        }
+        let pending = match started {
+            Ok(pending) => pending,
+            Err(failure) => {
+                self.shared.set_pairing(PairingView::Failed { failure });
+                return Err(failure);
             }
-            Err(ClientError::SignedOut) => {
-                self.shared.signed_out(SignOutReason::Revoked);
-                Err(ClientError::SignedOut.into())
+        };
+        let view = pending.view();
+        self.shared.set_pairing(view.clone());
+        let shared = Arc::clone(&self.shared);
+        let task = tokio::spawn(async move {
+            let outcome =
+                auth::wait_for_token(&shared.client, &pending, shared.pairing_second).await;
+            if shared.pairing_attempt.load(Ordering::SeqCst) != attempt {
+                return;
             }
-            Err(e) => {
-                // The token is kept; the sender reads the account when Long Lines answers.
-                self.shared.mark_account_stale();
-                self.shared.wake.notify_one();
-                Err(e.into())
-            }
+            let next = match outcome {
+                Ok(token) => match shared.sign_in(token).await {
+                    Err(SignInError::Client(ClientError::SignedOut)) => PairingView::Failed {
+                        failure: PairingFailure::Refused,
+                    },
+                    Err(SignInError::Store(e)) => {
+                        tracing::error!(error = %e, "couldn't store the token");
+                        PairingView::Failed {
+                            failure: PairingFailure::Refused,
+                        }
+                    }
+                    // Signed in; a network failure reading the account is retried by the sender.
+                    Ok(_) | Err(SignInError::Client(_)) => PairingView::Idle,
+                },
+                Err(failure) => PairingView::Failed { failure },
+            };
+            shared.set_pairing(next);
+        });
+        *self.pairing_task.lock().unwrap_or_else(|e| e.into_inner()) = Some(task);
+        Ok(view)
+    }
+
+    /// Cancel on the sign-in screen: stops polling and goes back to signed out.
+    pub fn cancel_sign_in(&self) {
+        self.shared.pairing_attempt.fetch_add(1, Ordering::SeqCst);
+        self.abort_pairing_task();
+        self.shared.set_pairing(PairingView::Idle);
+    }
+
+    fn abort_pairing_task(&self) {
+        if let Some(task) = self
+            .pairing_task
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            task.abort();
         }
     }
 
@@ -259,6 +325,7 @@ impl Engine {
 
     /// Stops both tasks and releases the port. The queue stays on disk.
     pub async fn shutdown(self) {
+        self.abort_pairing_task();
         let tasks: Vec<_> =
             std::mem::take(&mut *self.tasks.lock().unwrap_or_else(|e| e.into_inner()));
         self.listener
@@ -276,6 +343,7 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        self.abort_pairing_task();
         for task in self
             .tasks
             .lock()
@@ -312,6 +380,34 @@ impl Shared {
     fn set_upstream(&self, status: UpstreamStatus) {
         if self.state.set_upstream(status.clone()) {
             self.bus.publish(Event::Upstream(status));
+        }
+    }
+
+    fn set_pairing(&self, view: PairingView) {
+        if self.state.set_pairing(view.clone()) {
+            self.bus.publish(Event::Pairing(view));
+        }
+    }
+
+    async fn sign_in(&self, token: Token) -> Result<Account, SignInError> {
+        self.tokens.save(&token)?;
+        match self.client.me(&token).await {
+            Ok(account) => {
+                self.account_ok(account.clone());
+                self.wake.notify_one();
+                Ok(account)
+            }
+            Err(ClientError::SignedOut) => {
+                self.signed_out(SignOutReason::Revoked);
+                Err(ClientError::SignedOut.into())
+            }
+            Err(e) => {
+                // The token is kept; the sender reads the account when Long Lines answers.
+                self.mark_account_stale();
+                self.set_upstream(UpstreamStatus::Connected);
+                self.wake.notify_one();
+                Err(e.into())
+            }
         }
     }
 
