@@ -29,6 +29,11 @@ Status: v1, phase 1. Routes: `POST /device/start`, `POST /device/token`, `GET /m
   `LongLinesRelay/0.1.0 (windows)`. `<os>` is one of `windows`, `macos`, `linux`.
 - Timestamps are RFC 3339 in UTC with a `Z` suffix and no fraction:
   `YYYY-MM-DDTHH:MM:SSZ`.
+- Lengths in this document count characters as Unicode code points (Rust's `chars().count()`,
+  Postgres' `char_length`), not bytes or UTF-16 units.
+- No string value may contain U+0000 or an unpaired surrogate escape (`\ud800`); Postgres cannot
+  store either. Where section 6.1 makes a field a request-level rule, such a string is a 400;
+  elsewhere in a contact it is that item's `rejected` / `invalid`.
 
 ## 2. Versioning
 
@@ -236,8 +241,8 @@ Each item:
 | --- | --- | --- | --- | --- |
 | `external_id` | string | required | required | 1 to 256 characters; see 6.2. |
 | `op` | string | `upsert` | `delete` | |
-| `mycall` | string | required | ignored | The station callsign as logged, trimmed and upper-cased. 1 to 64 characters, no whitespace. |
-| `call` | string | required | ignored | The worked station as logged, trimmed and upper-cased. 1 to 64 characters, no whitespace. |
+| `mycall` | string | required | ignored | The station callsign as logged, trimmed and upper-cased. 1 to 64 characters, no whitespace or control characters (see below). |
+| `call` | string | required | ignored | The worked station as logged, trimmed and upper-cased. 1 to 64 characters, no whitespace or control characters. |
 | `frequency_hz` | integer | required | ignored | 1 to 300000000000. N1MM's `rxfreq` (else `txfreq`) is in 10 Hz units: multiply by 10. |
 | `band` | string or null | required | ignored | The band of `frequency_hz` from Appendix A, or null when it is in none. |
 | `mode` | string | required | ignored | As logged, trimmed and upper-cased, 1 to 32 characters. |
@@ -247,9 +252,13 @@ Each item:
 A delete item needs only `external_id`, `op` and `timestamp_utc`; any other fields on it are
 ignored.
 
+"Whitespace or control characters" in `mycall` and `call` means Unicode White_Space, U+FEFF and
+the general category Cc (which holds U+0000 to U+001F and U+007F to U+009F).
+
 Request-level validation. The whole request is refused with 400 `invalid_request` (nothing
 applied) when the body is not a JSON object, `relay_version` is missing or invalid, `contacts`
-is not an array of 1 to 100 objects, or any item lacks a valid `external_id`. Every other
+is not an array of 1 to 100 objects, or any item lacks a valid `external_id` (a string of 1 to
+256 characters without U+0000). Every other
 problem with an item is that item's `rejected` / `invalid` result (6.4); the rest of the batch
 is still applied.
 
@@ -257,6 +266,8 @@ is still applied.
 
 - When the logger packet carries a per-contact ID (N1MM's `ID`), `external_id` MUST be that ID
   as received, trimmed.
+- An ID that is empty after trimming, longer than 256 characters or holds a control character
+  (category Cc) is treated as no ID: the server would refuse the whole request for it.
 - Otherwise `external_id` MUST be the lower-case hex SHA-256 of the UTF-8 string
   `mycall|call|band|mode|timestamp_utc`: the item's own field values, exactly as sent, joined
   by `|`, with an empty string for a null `band`.
@@ -281,9 +292,10 @@ Example: `KK4PWJ|W1AW|20m|CW|2026-10-28T21:14:00Z` gives
 - Spots are never deleted. A retracted spot keeps its row with a retraction time and is hidden
   from every reader (profiles, recent spots, rollups, matching). Deliveries already sent are not
   recalled.
-- Two upserts carry the same content when `mycall`, `call`, `frequency_hz`, `band`, `mode` and
-  `timestamp_utc` are equal after the server's normalization. `logger_app` and `relay_version`
-  are not content.
+- Two upserts carry the same content when `mycall`, `call`, `frequency_hz`, `mode` and
+  `timestamp_utc` are equal after the server's normalization (trimmed and upper-cased). The
+  request's `band` is not compared: the server's band follows from `frequency_hz`. `logger_app`,
+  `relay_version` and fields the server does not know are not content.
 
 | Op | Existing contact for (account, `external_id`) | Effect | `status` |
 | --- | --- | --- | --- |
@@ -448,6 +460,18 @@ stored exactly as logged.
 | `EA8/DL1ABC/P` | `DL1ABC` |
 | `VP2V/W1AW` | `W1AW` |
 | `W1AW-7` | `W1AW` |
+| `KK4PWJ-7`, `KK4PWJ/P-7` | `KK4PWJ` |
+| `VP2E/KK4PWJ/M` | `KK4PWJ` |
+| `9A/DL1ABC/QRP` | `DL1ABC` |
+| `G4ABC/A`, `G4ABC/A/P` | `G4ABC` |
+| `W1AW/KH6`, `KH6/W1AW`, `W1AW/7/P` | `W1AW` |
+| `W1AW/ABCD`, `ABCD/W1AW` (tie: the one with a letter then a digit) | `W1AW` |
+| `K1AB/W1AW` (tie: the later part) | `W1AW` |
+| `AB/CD` (tie, no digit: the later part) | `CD` |
+| `P`, `4`, `/` (no part left) | unchanged |
+| `-7`, empty | empty |
+
+Every row was checked against the server's SQL and the relay's Rust port.
 
 ## 8. Errors and rate limits
 

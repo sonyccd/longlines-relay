@@ -178,6 +178,23 @@ cargo run -p relay-core --bin fake-logger -- --help
 Development builds never check for updates and never register a login item. Logs go to the
 terminal and to the log folder (tray menu, **Open log folder**).
 
+### End-to-end test against a local Long Lines
+
+`crates/relay-core/tests/e2e.rs` drives the engine with fake-logger packets against a real
+`relay-api` and checks each contact's final status: a contact and its edit, a contact and its
+delete, one logged under another callsign and one logged 40 minutes ago. It is ignored by
+default and needs a relay token, paired by hand: `POST device/start`, Allow on the approval
+page (or `answer_relay_pairing` as a test user), then `POST device/token`:
+
+```sh
+LONGLINES_RELAY_E2E_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v1 \
+LONGLINES_RELAY_E2E_TOKEN=ll_relay_... \
+cargo test -p relay-core --test e2e -- --ignored --nocapture
+```
+
+It prints the external IDs it used, so the server's `raw_spots` and `logged_contacts` rows can
+be checked afterwards.
+
 ## Releasing
 
 1. Bump the version in all four places, in one commit:

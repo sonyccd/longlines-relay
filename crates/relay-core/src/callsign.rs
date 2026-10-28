@@ -96,6 +96,59 @@ mod tests {
         assert_eq!(base_callsign("W1AW//P"), "W1AW");
     }
 
+    /// Every row is the server's SQL `base_callsign()` output, run on the local stack
+    /// (`select c, public.base_callsign(c) from unnest(array[...]) as c`) on 2026-10-28.
+    #[test]
+    fn matches_the_sql_on_tricky_calls() {
+        let sql = [
+            ("", ""),
+            (" kk4pwj-7 ", "KK4PWJ"),
+            ("-7", ""),
+            ("/", "/"),
+            ("3D2/W1AW", "W1AW"),
+            ("4", "4"),
+            ("9A/DL1ABC/QRP", "DL1ABC"),
+            ("AB/CD", "CD"),
+            ("ABCD/W1AW", "W1AW"),
+            ("DL/G4ABC/MM", "G4ABC"),
+            ("EA8/DL1ABC/P", "DL1ABC"),
+            ("G4ABC/A", "G4ABC"),
+            ("G4ABC/A/P", "G4ABC"),
+            ("HB0/DL1ABC/P", "DL1ABC"),
+            ("K/W1AW", "W1AW"),
+            ("K1AB/W1AW", "W1AW"),
+            ("KH6/KK4PWJ", "KK4PWJ"),
+            ("KK4PWJ", "KK4PWJ"),
+            ("kk4pwj ", "KK4PWJ"),
+            ("KK4PWJ-7", "KK4PWJ"),
+            ("KK4PWJ/4", "KK4PWJ"),
+            ("KK4PWJ/AM", "KK4PWJ"),
+            ("KK4PWJ/M", "KK4PWJ"),
+            ("KK4PWJ/MM", "KK4PWJ"),
+            ("KK4PWJ/P", "KK4PWJ"),
+            ("KK4PWJ/P-7", "KK4PWJ"),
+            ("KK4PWJ/QRP", "KK4PWJ"),
+            ("kk4pwj/qrpp", "KK4PWJ"),
+            ("KK4PWJ/QRPP", "KK4PWJ"),
+            ("KK4PWJ/R", "KK4PWJ"),
+            ("P", "P"),
+            ("TA1/G4ABC", "G4ABC"),
+            ("VK9/W1AW/P", "W1AW"),
+            ("VP2E/KK4PWJ/M", "KK4PWJ"),
+            ("VP2V/W1AW", "W1AW"),
+            ("W1AW-7", "W1AW"),
+            ("W1AW//P", "W1AW"),
+            ("W1AW/3D2", "W1AW"),
+            ("W1AW/7/P", "W1AW"),
+            ("W1AW/ABCD", "W1AW"),
+            ("W1AW/KH6", "W1AW"),
+            ("W4/KK4PWJ", "KK4PWJ"),
+        ];
+        for (input, want) in sql {
+            assert_eq!(base_callsign(input), want, "base_callsign({input:?})");
+        }
+    }
+
     #[test]
     fn same_station_compares_base_calls() {
         assert!(same_station("KK4PWJ/P", "KK4PWJ"));

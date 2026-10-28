@@ -359,10 +359,32 @@ fn utc_text(t: DateTime<Utc>) -> String {
     t.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
+/// A call the server accepts (contract 6.1): 1 to 64 characters, none of them whitespace or a
+/// control character (Unicode White_Space, U+FEFF and the Cc category, which holds U+0000).
 fn valid_call(call: &str) -> bool {
     !call.is_empty()
         && call.chars().count() <= MAX_CALL_LEN
-        && !call.chars().any(char::is_whitespace)
+        && !call
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '\u{feff}')
+}
+
+/// A mode the server accepts: 1 to 32 characters and no control character (U+0000 can't be
+/// stored; the others are junk from the packet).
+fn valid_mode(mode: &str) -> bool {
+    !mode.is_empty() && mode.chars().count() <= MAX_MODE_LEN && !mode.chars().any(char::is_control)
+}
+
+/// The logger's `app` as sent: control characters dropped (the server refuses U+0000), at most
+/// 64 characters, and none when nothing is left.
+fn logger_app(app: Option<&str>) -> Option<String> {
+    let app: String = app?
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_APP_LEN)
+        .collect();
+    let app = app.trim();
+    (!app.is_empty()).then(|| app.to_string())
 }
 
 /// What the pipeline decided for one contact packet.
@@ -614,7 +636,7 @@ impl Shared {
             tracing::warn!("a contact packet had no usable timestamp or frequency");
             return Decision::Final(RowStatus::Unreadable);
         };
-        if !valid_call(&c.call) || c.mode.is_empty() || c.mode.chars().count() > MAX_MODE_LEN {
+        if !valid_call(&c.call) || !valid_mode(&c.mode) {
             tracing::warn!("a contact packet had no usable call or mode");
             return Decision::Final(RowStatus::Unreadable);
         }
@@ -660,10 +682,7 @@ impl Shared {
             band,
             mode: c.mode.clone(),
             timestamp_utc,
-            logger_app: c
-                .app
-                .as_ref()
-                .map(|a| a.chars().take(MAX_APP_LEN).collect()),
+            logger_app: logger_app(c.app.as_deref()),
         })
     }
 
@@ -679,7 +698,7 @@ impl Shared {
         let band = c.frequency_hz.and_then(band_for_hz).map(str::to_string);
         let has_logger_id =
             c.id.as_deref()
-                .is_some_and(|id| id.chars().count() <= crate::external_id::MAX_EXTERNAL_ID_LEN);
+                .is_some_and(crate::external_id::usable_logger_id);
         let can_hash = !c.mycall.is_empty()
             && !c.call.is_empty()
             && !c.mode.is_empty()
@@ -712,7 +731,7 @@ impl Shared {
             band,
             mode: c.mode.clone(),
             timestamp_utc,
-            logger_app: c.app.clone(),
+            logger_app: logger_app(c.app.as_deref()),
         })
     }
 
@@ -1100,5 +1119,28 @@ mod tests {
         assert!(!valid_call(""));
         assert!(!valid_call("KK4 PWJ"));
         assert!(!valid_call(&"A".repeat(65)));
+        assert!(valid_call(&"\u{1F4FB}".repeat(64)), "characters, not bytes");
+        for bad in [
+            "W1\0AW",
+            "W1\u{1}AW",
+            "W1\u{85}AW",
+            "W1\u{feff}AW",
+            "W1\u{a0}AW",
+        ] {
+            assert!(!valid_call(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn mode_and_app_shape() {
+        assert!(valid_mode("CW"));
+        assert!(valid_mode("DIGITAL VOICE"));
+        assert!(!valid_mode(""));
+        assert!(!valid_mode("C\0W"));
+        assert!(!valid_mode(&"M".repeat(33)));
+        assert_eq!(logger_app(Some("N1\0MM")), Some("N1MM".into()));
+        assert_eq!(logger_app(Some("\0")), None);
+        assert_eq!(logger_app(None), None);
+        assert_eq!(logger_app(Some(&"x".repeat(70))), Some("x".repeat(64)));
     }
 }

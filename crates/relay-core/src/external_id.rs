@@ -16,10 +16,18 @@ pub struct HashFields<'a> {
     pub timestamp_utc: &'a str,
 }
 
+/// True when the logger's ID, trimmed, can be the `external_id` (contract 6.2): not empty, at most
+/// 256 characters and no control character (the server refuses U+0000 with a 400 for the whole
+/// request).
+pub fn usable_logger_id(id: &str) -> bool {
+    let id = id.trim();
+    !id.is_empty() && id.chars().count() <= MAX_EXTERNAL_ID_LEN && !id.chars().any(char::is_control)
+}
+
 /// The logger's ID, trimmed, when it has one the server accepts; otherwise the fallback hash.
 pub fn external_id(logger_id: Option<&str>, fields: HashFields<'_>) -> String {
-    match logger_id.map(str::trim) {
-        Some(id) if !id.is_empty() && id.chars().count() <= MAX_EXTERNAL_ID_LEN => id.to_string(),
+    match logger_id {
+        Some(id) if usable_logger_id(id) => id.trim().to_string(),
         _ => fallback_hash(fields),
     }
 }
@@ -96,5 +104,13 @@ mod tests {
         assert_eq!(external_id(Some(&long), f), fallback_hash(f));
         let max = "x".repeat(MAX_EXTERNAL_ID_LEN);
         assert_eq!(external_id(Some(&max), f), max);
+        assert_eq!(external_id(Some("abc\0def"), f), fallback_hash(f));
+        assert_eq!(external_id(Some("abc\u{1}def"), f), fallback_hash(f));
+        let astral = "\u{1F4FB}".repeat(MAX_EXTERNAL_ID_LEN);
+        assert_eq!(
+            external_id(Some(&astral), f),
+            astral,
+            "characters, not bytes"
+        );
     }
 }

@@ -126,11 +126,11 @@ fn apply(state: &mut ServerState, item: &Value) -> Value {
             {
                 return json!({"external_id": id, "status": "rejected", "reason": "mycall_mismatch"});
             }
+            // Content as contract 6.3 defines it: the request's band is not compared.
             let content = json!([
                 item["mycall"],
                 item["call"],
                 item["frequency_hz"],
-                item["band"],
                 item["mode"],
                 item["timestamp_utc"]
             ]);
