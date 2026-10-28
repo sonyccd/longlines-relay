@@ -109,10 +109,10 @@ The repository is a Cargo workspace plus a Vite app:
 
 | Path | What |
 | --- | --- |
-| `crates/relay-core` | Everything the relay does: the UDP listener, the N1MM parser, the checks, the outgoing queue, pairing and the Long Lines client. No Tauri dependency, so it builds and tests anywhere. |
+| `crates/relay-core` | Everything the relay does: the UDP listener, the N1MM parser, the checks, the outgoing queue, pairing, the Long Lines client and the spots stream. No Tauri dependency, so it builds and tests anywhere. |
 | `src-tauri` | The Tauri 2 shell: window, tray, commands, updater, autostart. |
 | `src` | The window (React, TypeScript, MUI). |
-| `docs/contract.md` | The v1 API between the relay and Long Lines. |
+| `docs/contract.md` | The API between the relay and Long Lines (v1 and v2, which the relay uses). |
 | `docs/loggers.md` | Logger setup and the verified logger facts. It is the page "Set up logging software" opens. |
 
 You need Rust (stable) and Node.js 22 or later. Building the shell on Linux also needs the
@@ -165,15 +165,19 @@ cargo run -p relay-core --bin fake-logger -- --help
 2. Here, run the relay against it:
 
    ```sh
-   LONGLINES_RELAY_API_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v1 npm run tauri dev
+   LONGLINES_RELAY_API_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v2 npm run tauri dev
    ```
 
    `LONGLINES_RELAY_API_BASE` replaces the production base URL
-   (`https://api.longlines.io/relay/v1`). Use the API port `supabase start` printed if it isn't
+   (`https://api.longlines.io/relay/v2`). Use the API port `supabase start` printed if it isn't
    54321.
 
 3. Sign in. The approval page opens on the local web app (`cd web && npm run dev` in the Long
    Lines repository), at the address the local server returns.
+
+4. For the DX cluster, also run the sender there (`cd web && npm run sender`): the spots stream
+   is the URL `GET /me` returns as `spots_url`, `http://127.0.0.1:8081/v2/spots` locally. The
+   relay opens it only while its DX cluster switch is on.
 
 Development builds never check for updates and never register a login item. Logs go to the
 terminal and to the log folder (tray menu, **Open log folder**).
@@ -187,7 +191,7 @@ default and needs a relay token, paired by hand: `POST device/start`, Allow on t
 page (or `answer_relay_pairing` as a test user), then `POST device/token`:
 
 ```sh
-LONGLINES_RELAY_E2E_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v1 \
+LONGLINES_RELAY_E2E_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v2 \
 LONGLINES_RELAY_E2E_TOKEN=ll_relay_... \
 cargo test -p relay-core --test e2e -- --ignored --nocapture
 ```

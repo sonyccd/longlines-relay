@@ -8,10 +8,14 @@
 //! ([`n1mm`]), applies the callsign ([`callsign`]) and freshness ([`freshness`]) checks, puts
 //! contacts in the on-disk [`upstream::queue`], and the sender loop submits them with the
 //! [`upstream::client`]. Every step publishes to the [`bus`]; [`state`] keeps what the UI shows.
+//!
+//! The other direction: while the DX cluster switch is on, [`downstream::stream`] holds the
+//! spots stream open and the engine hands each spot on.
 
 pub mod bands;
 pub mod bus;
 pub mod callsign;
+pub mod downstream;
 pub mod engine;
 pub mod external_id;
 pub mod fake_logger;

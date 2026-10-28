@@ -51,6 +51,14 @@ pub enum PairingView {
     Failed { failure: PairingFailure },
 }
 
+/// What a successful pairing hands back: the token and the scopes it carries (contract 4.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Granted {
+    pub token: Token,
+    /// As the server listed them; empty when the answer had none.
+    pub scopes: Vec<String>,
+}
+
 /// A started pairing, ready to poll.
 #[derive(Clone, Debug)]
 pub struct Pending {
@@ -162,7 +170,7 @@ pub async fn wait_for_token(
     client: &RelayClient,
     pending: &Pending,
     second: Duration,
-) -> Result<Token, PairingFailure> {
+) -> Result<Granted, PairingFailure> {
     let mut interval = pending.interval;
     let mut extra_wait = Duration::ZERO;
     loop {
@@ -178,7 +186,7 @@ pub async fn wait_for_token(
             Ok(PollOutcome::SlowDown) => interval += SLOW_DOWN_STEP,
             Ok(PollOutcome::Denied) => return Err(PairingFailure::Denied),
             Ok(PollOutcome::Expired) => return Err(PairingFailure::Expired),
-            Ok(PollOutcome::Approved { token, .. }) => return Ok(token),
+            Ok(PollOutcome::Approved { token, scopes }) => return Ok(Granted { token, scopes }),
             Err(ClientError::Retry { reason }) => {
                 tracing::info!(%reason, "couldn't poll for the token; trying again");
             }

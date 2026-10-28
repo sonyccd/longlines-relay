@@ -3,7 +3,7 @@
 //! against the contract. Ignored by default; it needs a paired token:
 //!
 //! ```sh
-//! LONGLINES_RELAY_E2E_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v1 \
+//! LONGLINES_RELAY_E2E_BASE=http://127.0.0.1:54321/functions/v1/relay-api/v2 \
 //! LONGLINES_RELAY_E2E_TOKEN=ll_relay_... \
 //! cargo test -p relay-core --test e2e -- --ignored --nocapture
 //! ```

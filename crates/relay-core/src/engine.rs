@@ -4,30 +4,39 @@
 //! contact passes every check, a queued item; it only touches memory and the local SQLite file,
 //! so network trouble never slows UDP receive. The sender takes the oldest queued items, one
 //! request at a time, and turns each answer into the row's final status.
+//!
+//! A third task holds the spots stream ([`crate::downstream::stream`]) open while the DX cluster
+//! switch is on, and hands each spot on to the DX cluster.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, TimeDelta, Utc};
-use tokio::sync::{broadcast, mpsc, Notify};
+use tokio::sync::{broadcast, mpsc, watch, Notify};
 use tokio::task::JoinHandle;
 
 use crate::bands::band_for_hz;
 use crate::bus::{AuthEvent, Bus, Event, SignOutReason};
 use crate::callsign::same_station;
+use crate::downstream::stream::{self, StreamClient, StreamConfig, StreamHost, Target};
+use crate::downstream::{Hello, Spot};
 use crate::external_id::{external_id, HashFields};
 use crate::freshness::{classify, Freshness};
 use crate::listeners::udp::UdpListener;
 use crate::listeners::{Datagram, Listener, ListenerStatus};
 use crate::n1mm::{self, parse_timestamp, ContactKind, LoggedContact, Packet};
 use crate::source_filter::SourceFilter;
-use crate::state::{Account, RelayState, Snapshot, StreamRow, UpstreamStatus};
+use crate::state::{
+    Account, ClusterUpstream, ClusterView, RelayState, SentRow, Snapshot, StreamRow, UpstreamStatus,
+};
 use crate::status::{reasons, RowStatus};
 use crate::upstream::auth::{self, PairingFailure, PairingView};
-use crate::upstream::client::{ClientConfig, ClientError, ItemStatus, RejectReason, RelayClient};
+use crate::upstream::client::{
+    ClientConfig, ClientError, ItemStatus, Me, RejectReason, RelayClient, SPOTS_READ,
+};
 use crate::upstream::queue::{Backoff, DropReason, NextBatch, Queue, QueueError, QueueItem};
 use crate::upstream::token_store::{Token, TokenStore, TokenStoreError};
 use crate::upstream::{Op, QueuedContact, WireItem};
@@ -52,6 +61,8 @@ const MAX_MODE_LEN: usize = 32;
 const MAX_APP_LEN: usize = 64;
 /// Datagrams waiting for the pipeline.
 const DATAGRAM_BACKLOG: usize = 1024;
+/// A spot id served once is not served again for this long (contract 9.4).
+pub const SPOT_REPEAT_WINDOW: Duration = Duration::from_secs(600);
 
 /// How to build an engine. [`EngineConfig::new`] fills in the contract's defaults.
 #[derive(Debug)]
@@ -69,6 +80,12 @@ pub struct EngineConfig {
     pub edit_window: Duration,
     pub idle_tick: Duration,
     pub pairing_second: Duration,
+    /// The DX cluster switch at launch (off by default).
+    pub cluster_enabled: bool,
+    /// The spots stream's silence limit (contract 9.5). The stream's backoff is `backoff`.
+    pub keepalive_timeout: Duration,
+    /// How long a stream stays open after `hello` before the backoff starts over.
+    pub stream_stable_after: Duration,
 }
 
 impl EngineConfig {
@@ -91,6 +108,9 @@ impl EngineConfig {
             edit_window: EDIT_WINDOW,
             idle_tick: IDLE_TICK,
             pairing_second: PAIRING_SECOND,
+            cluster_enabled: false,
+            keepalive_timeout: stream::KEEPALIVE_TIMEOUT,
+            stream_stable_after: stream::STABLE_AFTER,
         }
     }
 }
@@ -134,6 +154,17 @@ struct Shared {
     pairing_second: Duration,
     /// Bumped by every sign-in start and cancel, so a stale attempt never shows.
     pairing_attempt: AtomicU64,
+    /// The latest `GET /me`, for the spots stream's URL and scopes.
+    me: Mutex<Option<Me>>,
+    /// The scopes the last pairing granted, until `GET /me` lists them.
+    granted_scopes: Mutex<Option<Vec<String>>>,
+    /// Moves whenever the spots stream's target may have changed.
+    stream_changes: watch::Sender<u64>,
+    /// Spot ids served lately, so a repeat is dropped (contract 9.4).
+    served: Mutex<HashMap<u64, Instant>>,
+    /// The stream answered 403 for the stored token: never again with it (contract 3.1), whatever
+    /// a later `GET /me` says. Cleared by signing in or out.
+    scope_refused: AtomicBool,
 }
 
 /// The running relay core.
@@ -152,6 +183,13 @@ impl Engine {
     /// inside a Tokio runtime. A port in use is not an error: the feed shows it.
     pub async fn start(config: EngineConfig) -> Result<Self, EngineError> {
         let queue = Queue::open(&config.queue_path, config.backoff)?;
+        let stream_config = StreamConfig {
+            backoff: config.backoff,
+            keepalive_timeout: config.keepalive_timeout,
+            stable_after: config.stream_stable_after,
+            ..StreamConfig::new(config.client.relay_version.clone())
+        };
+        let stream_client = StreamClient::new(&stream_config)?;
         let client = RelayClient::new(config.client)?;
         let shared = Arc::new(Shared {
             state: RelayState::new(),
@@ -171,7 +209,15 @@ impl Engine {
             idle_tick: config.idle_tick,
             pairing_second: config.pairing_second,
             pairing_attempt: AtomicU64::new(0),
+            me: Mutex::new(None),
+            granted_scopes: Mutex::new(None),
+            stream_changes: watch::Sender::new(0),
+            served: Mutex::new(HashMap::new()),
+            scope_refused: AtomicBool::new(false),
         });
+        shared
+            .state
+            .set_cluster_enabled(config.cluster_enabled, Utc::now());
         shared.restore_rows()?;
         if matches!(shared.tokens.load(), Ok(Some(_))) {
             shared.state.set_upstream(UpstreamStatus::Connected);
@@ -188,6 +234,12 @@ impl Engine {
         let tasks = vec![
             tokio::spawn(pipeline(Arc::clone(&shared), rx)),
             tokio::spawn(sender(Arc::clone(&shared))),
+            tokio::spawn(stream::run(
+                Arc::clone(&shared),
+                stream_client,
+                stream_config,
+                shared.stream_changes.subscribe(),
+            )),
         ];
         shared.publish_feed();
         Ok(Self {
@@ -219,6 +271,15 @@ impl Engine {
         self.shared.publish_feed();
     }
 
+    /// The DX cluster switch. While it is on the spots stream is held open. The caller saves the
+    /// setting.
+    pub fn set_cluster_enabled(&self, on: bool) -> ClusterView {
+        self.shared.state.set_cluster_enabled(on, Utc::now());
+        self.shared.stream_changed();
+        self.shared.publish_cluster();
+        self.shared.state.cluster_view(Utc::now())
+    }
+
     /// Moves the listener to another port. The caller saves the setting.
     pub fn set_port(&self, port: u16) -> ListenerStatus {
         let mut current = self.listener.lock().unwrap_or_else(|e| e.into_inner());
@@ -237,7 +298,7 @@ impl Engine {
 
     /// Stores a freshly paired token and reads the account. A refused token is deleted again.
     pub async fn sign_in(&self, token: Token) -> Result<Account, SignInError> {
-        self.shared.sign_in(token).await
+        self.shared.sign_in(token, None).await
     }
 
     /// Starts signing in: asks Long Lines for a code and polls for the token in the background.
@@ -270,7 +331,7 @@ impl Engine {
                 return;
             }
             let next = match outcome {
-                Ok(token) => match shared.sign_in(token).await {
+                Ok(granted) => match shared.sign_in(granted.token, Some(granted.scopes)).await {
                     Err(SignInError::Client(ClientError::SignedOut)) => PairingView::Failed {
                         failure: PairingFailure::Refused,
                     },
@@ -405,17 +466,78 @@ impl Shared {
         }
     }
 
+    fn publish_cluster(&self) {
+        self.bus
+            .publish(Event::Cluster(self.state.cluster_view(Utc::now())));
+    }
+
+    /// Tells the spots stream to read its target again.
+    fn stream_changed(&self) {
+        self.stream_changes.send_modify(|v| *v = v.wrapping_add(1));
+    }
+
+    fn me_lock(&self) -> std::sync::MutexGuard<'_, Option<Me>> {
+        self.me.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn granted_lock(&self) -> std::sync::MutexGuard<'_, Option<Vec<String>>> {
+        self.granted_scopes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The token's scopes: from the latest `GET /me`, else from the pairing.
+    fn scopes(&self) -> Option<Vec<String>> {
+        self.me_lock()
+            .as_ref()
+            .and_then(|me| me.scopes.clone())
+            .or_else(|| self.granted_lock().clone())
+    }
+
+    /// Serves one spot from the stream, unless the same id was served in the last ten minutes.
+    fn serve_spot(&self, spot: Spot) {
+        {
+            let mut served = self.served.lock().unwrap_or_else(|e| e.into_inner());
+            served.retain(|_, at| at.elapsed() < SPOT_REPEAT_WINDOW);
+            if served.contains_key(&spot.id) {
+                tracing::debug!(id = spot.id, "dropped a repeated spot");
+                return;
+            }
+            served.insert(spot.id, Instant::now());
+        }
+        let row = self.state.push_sent(SentRow::for_spot(&spot, Utc::now()));
+        self.bus.publish(Event::SpotSent(row));
+        self.publish_cluster();
+    }
+
     fn set_pairing(&self, view: PairingView) {
         if self.state.set_pairing(view.clone()) {
             self.bus.publish(Event::Pairing(view));
         }
     }
 
-    async fn sign_in(&self, token: Token) -> Result<Account, SignInError> {
+    async fn sign_in(
+        &self,
+        token: Token,
+        granted: Option<Vec<String>>,
+    ) -> Result<Account, SignInError> {
+        if let Some(scopes) = &granted {
+            if !scopes.iter().any(|s| s == SPOTS_READ) {
+                tracing::info!("this sign-in can't receive spots; the DX cluster stays off");
+            }
+        }
         self.tokens.save(&token)?;
+        *self.me_lock() = None;
+        *self.granted_lock() = granted;
+        self.scope_refused.store(false, Ordering::SeqCst);
+        if self.state.set_scope_missing(false) {
+            self.publish_cluster();
+        }
+        self.stream_changed();
         match self.client.me(&token).await {
-            Ok(account) => {
-                self.account_ok(account.clone());
+            Ok(me) => {
+                let account = me.account();
+                self.account_ok(me);
                 self.wake.notify_one();
                 Ok(account)
             }
@@ -449,11 +571,21 @@ impl Shared {
                 .is_none_or(|t| t.elapsed() >= self.account_refresh)
     }
 
-    fn account_ok(&self, account: Account) {
+    fn account_ok(&self, me: Me) {
         *self
             .account_checked_at
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        let account = me.account();
+        *self.me_lock() = Some(me);
+        let can_read = self
+            .scopes()
+            .is_some_and(|scopes| scopes.iter().any(|s| s == SPOTS_READ));
+        let refused = self.scope_refused.load(Ordering::SeqCst);
+        if self.state.set_scope_missing(!can_read || refused) {
+            self.publish_cluster();
+        }
+        self.stream_changed();
         self.state.set_account(Some(account.clone()));
         self.set_upstream(UpstreamStatus::Connected);
         self.bus
@@ -484,6 +616,12 @@ impl Shared {
         }
         self.mark_account_stale();
         self.state.set_account(None);
+        *self.me_lock() = None;
+        *self.granted_lock() = None;
+        self.scope_refused.store(false, Ordering::SeqCst);
+        self.state.set_scope_missing(false);
+        self.stream_changed();
+        self.publish_cluster();
         self.set_upstream(UpstreamStatus::SignedOut);
         self.bus
             .publish(Event::Auth(AuthEvent::SignedOut { reason }));
@@ -886,6 +1024,57 @@ impl Shared {
     }
 }
 
+impl StreamHost for Shared {
+    fn target(&self) -> Target {
+        if !self.state.cluster_enabled() || self.state.scope_missing() {
+            return Target::Off;
+        }
+        let Ok(Some(token)) = self.tokens.load() else {
+            return Target::Off;
+        };
+        let can_read = self
+            .scopes()
+            .is_some_and(|scopes| scopes.iter().any(|s| s == SPOTS_READ));
+        let url = self.me_lock().as_ref().and_then(|me| me.spots_url.clone());
+        match url {
+            Some(url) if can_read && stream::stream_url_ok(&url) => Target::Open { token, url },
+            Some(_) if can_read => {
+                tracing::warn!("the spots stream's URL isn't one the relay sends its token to");
+                Target::Off
+            }
+            _ => Target::Off,
+        }
+    }
+
+    fn status(&self, status: ClusterUpstream) {
+        if self.state.set_cluster_upstream(status) {
+            self.publish_cluster();
+        }
+    }
+
+    fn hello(&self, hello: Hello) {
+        tracing::debug!(relay_id = %hello.relay_id, "the spots stream said hello");
+    }
+
+    fn spot(&self, spot: Spot) {
+        self.serve_spot(spot);
+    }
+
+    fn refused(&self, token: &Token) {
+        Shared::refused(self, token);
+    }
+
+    fn scope_missing(&self, token: &Token) {
+        if !matches!(self.tokens.load(), Ok(Some(current)) if current == *token) {
+            return;
+        }
+        self.scope_refused.store(true, Ordering::SeqCst);
+        if self.state.set_scope_missing(true) {
+            self.publish_cluster();
+        }
+    }
+}
+
 fn row_status_for(contact: &QueuedContact, status: &ItemStatus) -> RowStatus {
     match status {
         ItemStatus::Created | ItemStatus::Updated | ItemStatus::Unchanged => match contact.kind {
@@ -988,9 +1177,9 @@ async fn sender(shared: Arc<Shared>) {
 
         if shared.account_due() {
             match shared.client.me(&token).await {
-                Ok(account) => {
+                Ok(me) => {
                     account_failures = 0;
-                    shared.account_ok(account);
+                    shared.account_ok(me);
                 }
                 Err(ClientError::SignedOut) => {
                     shared.refused(&token);
