@@ -55,6 +55,14 @@ export function SignedOutScreen({ view, run }: { view: ShellView; run: Run }) {
                 <Typography variant="body1">{step.title}</Typography>
                 <Typography variant="body2" color="text.secondary">
                   {step.text}
+                  {i === 1 && (
+                    <>
+                      {" "}
+                      <Link component="button" variant="body2" onClick={() => run(relay.openSetupDocs)}>
+                        {copy.signedOut.seeHow}
+                      </Link>
+                    </>
+                  )}
                 </Typography>
               </Box>
             </Stack>

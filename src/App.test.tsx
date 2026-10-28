@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { App } from "./App";
 import { mockTauri } from "./test/tauri";
 import { renderWithTheme } from "./test/render";
@@ -28,11 +28,39 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Finish signing in in your browser" })).toBeVisible();
 
     shell.emitState(signedInView());
-    expect(screen.getByRole("heading", { name: "Long Lines account" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Contacts", selected: true })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Account menu, KK4PWJ" })).toBeVisible();
 
     // A revoked token: the shell reports signed out and the page drops back.
     shell.emitState(signedOutView());
     expect(screen.getByRole("heading", { name: "Sign in to start relaying" })).toBeVisible();
+    expect(screen.queryByRole("tablist")).toBeNull();
+  });
+
+  it.each([
+    ["signed out", signedOutView()],
+    [
+      "signing in",
+      signedOutView({
+        pairing: {
+          state: "waiting",
+          user_code: "KQ7M-X4PD",
+          verification_uri: "https://longlines.io/relay",
+          verification_uri_complete: "https://longlines.io/relay/approve?code=KQ7M-X4PD",
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+        },
+      }),
+    ],
+    ["expired", signedOutView({ pairing: { state: "failed", failure: "expired" } })],
+  ])("shows the title alone while %s", async (_, view) => {
+    mockTauri(view);
+    renderWithTheme(<App />);
+    const header = await screen.findByRole("banner");
+    await screen.findByRole("main");
+    expect(header).toHaveTextContent(/^Long Lines Relay$/);
+    expect(within(header).queryByRole("button")).toBeNull();
+    expect(screen.queryByText("Connected")).toBeNull();
+    expect(screen.queryByRole("tablist")).toBeNull();
   });
 
   it("shows progress until the shell answers", async () => {
