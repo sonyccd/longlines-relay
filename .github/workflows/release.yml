@@ -1,5 +1,11 @@
-# Pushing a tag vX.Y.Z builds every platform and uploads the bundles and latest.json to a draft
-# release. Nothing reaches users until the draft is published by hand: the updater reads
+# A tag vX.Y.Z builds every platform at version X.Y.Z and uploads the bundles and latest.json to
+# its release. The tag is the version: each build writes it into the files that carry one, and
+# nothing is committed back, so main's version is only a placeholder for local builds.
+#
+# Pushing the tag from git makes a draft that reaches no one until it is published by hand.
+# Publishing a new release on GitHub with a new tag pushes the tag too, and the builds upload to
+# that release, which is already public: installed relays find no latest.json until the check
+# job passes and keep their next try for the next day. The updater reads
 # releases/latest/download/latest.json, and a draft is never "latest". See README "Releasing".
 #
 # Actions are pinned to commit SHAs; the comment names the release each SHA is.
@@ -28,15 +34,15 @@ jobs:
       release_id: ${{ steps.release.outputs.id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check the tag matches the app version
+      # Windows installers take only X.Y.Z, with no pre-release or build suffix.
+      - name: Check the tag is a version
         run: |
-          app="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          if [ "v${app}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match the app version ${app} (src-tauri/tauri.conf.json)."
+          if ! [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} isn't vX.Y.Z."
             exit 1
           fi
-      # One job makes the draft so the four builds upload to the same release instead of each
-      # racing to create one.
+      # One job finds the release (made on GitHub) or makes the draft (tag pushed from git), so
+      # the four builds upload to the same release instead of each racing to create one.
       - name: Create the draft release
         id: release
         env:
@@ -89,6 +95,27 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - run: npm ci
+      # Every file that carries the app's version gets the tag's (crates/relay-core/tests/
+      # versions.rs lists them). tauri.conf.json names the bundles and is what the updater
+      # compares; Cargo.toml is what the app reports; Cargo.lock follows on the build.
+      - name: Stamp the version from the tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" node <<'EOF'
+          const fs = require("fs");
+          const version = process.env.VERSION;
+          for (const file of ["src-tauri/tauri.conf.json", "package.json", "package-lock.json"]) {
+            const json = JSON.parse(fs.readFileSync(file, "utf8"));
+            json.version = version;
+            if (file === "package-lock.json") json.packages[""].version = version;
+            fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+          }
+          const cargo = fs.readFileSync("Cargo.toml", "utf8");
+          const workspace = /(\[workspace\.package\]\r?\nversion = )"[^"]*"/;
+          if (!workspace.test(cargo)) throw new Error("Cargo.toml has no [workspace.package] version line");
+          fs.writeFileSync("Cargo.toml", cargo.replace(workspace, `$1"${version}"`));
+          console.log(`Stamped version ${version}`);
+          EOF
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -96,7 +123,7 @@ jobs:
           # tauri.conf.json asks for signed updater artifacts.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        # The draft job made the release, so the action only uploads to it by id. tauri-action v1
+        # The draft job found or made the release, so the action only uploads to it by id. tauri-action v1
         # writes each latest.json URL as the asset's API address
         # (https://api.github.com/repos/<repo>/releases/assets/<id>), which stays valid when the
         # draft is published; the updater downloads it with Accept: application/octet-stream.
@@ -113,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # The four builds each add their platform to latest.json. Fail here, before anyone
-      # publishes the draft, if one is missing or points at a file that isn't in this release.
+      # publishes a draft, if one is missing or points at a file that isn't in this release.
       # tauri-action v1 writes the asset's API URL; a browser download URL is accepted too.
       - name: Every platform is in latest.json
         env:
@@ -123,7 +150,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > release.json
           asset="$(jq -r '.assets[] | select(.name == "latest.json") | .url' release.json)"
           if [ -z "${asset}" ]; then
-            echo "::error::The draft release has no latest.json."
+            echo "::error::The release has no latest.json."
             exit 1
           fi
           gh api -H "Accept: application/octet-stream" "${asset}" > latest.json
