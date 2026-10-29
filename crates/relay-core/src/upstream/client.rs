@@ -1,4 +1,5 @@
-//! The Long Lines Relay API v1 client (`docs/contract.md`).
+//! The Long Lines Relay API v2 client (`docs/contract.md`). The spots stream has its own client,
+//! [`crate::downstream::stream`], because it has no total request timeout.
 //!
 //! Every response is classified the way the contract's section 8 says to act on it: 401 signs
 //! out, 429 waits `Retry-After`, any other 4xx is final, 5xx and network trouble retry. The token
@@ -14,8 +15,34 @@ use super::token_store::Token;
 use super::WireItem;
 use crate::state::Account;
 
+/// `GET /me` (contract 5). The v2 fields are optional so an answer without them still reads; the
+/// spots stream then stays closed.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Me {
+    pub callsign: String,
+    pub email: String,
+    #[serde(default)]
+    pub relay_id: Option<String>,
+    #[serde(default)]
+    pub device_name: Option<String>,
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+    #[serde(default)]
+    pub spots_url: Option<String>,
+}
+
+impl Me {
+    /// The account the window shows.
+    pub fn account(&self) -> Account {
+        Account {
+            callsign: self.callsign.clone(),
+            email: self.email.clone(),
+        }
+    }
+}
+
 /// The production base URL.
-pub const DEFAULT_BASE_URL: &str = "https://api.longlines.io/relay/v1";
+pub const DEFAULT_BASE_URL: &str = "https://api.longlines.io/relay/v2";
 /// Overrides the base URL for development (for example the local Supabase stack).
 pub const BASE_URL_ENV: &str = "LONGLINES_RELAY_API_BASE";
 /// The wait after a 429 whose `Retry-After` cannot be read.
@@ -26,6 +53,12 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub const CLIENT_NAME: &str = "Long Lines Relay";
 /// The longest `device_name` the server accepts.
 pub const MAX_DEVICE_NAME: usize = 64;
+/// Posting logged contacts (contract 3.1).
+pub const CONTACTS_WRITE: &str = "contacts:write";
+/// Receiving the spots stream (contract 3.1).
+pub const SPOTS_READ: &str = "spots:read";
+/// What a v2 pairing asks for (contract 4.1).
+pub const SCOPES: [&str; 2] = [CONTACTS_WRITE, SPOTS_READ];
 
 /// The base URL from [`BASE_URL_ENV`], else production.
 pub fn base_url_from_env() -> String {
@@ -199,6 +232,8 @@ struct StartBody<'a> {
     client_name: &'a str,
     client_version: &'a str,
     device_name: &'a str,
+    scopes: &'a [&'a str],
+    platform: &'a str,
 }
 
 #[derive(Serialize)]
@@ -245,13 +280,15 @@ impl RelayClient {
         format!("{}{path}", self.base_url)
     }
 
-    /// `POST /device/start`. The device name is cut to 64 characters.
+    /// `POST /device/start`, asking for both scopes. The device name is cut to 64 characters.
     pub async fn start_pairing(&self, device_name: &str) -> Result<PairingStart, ClientError> {
         let device_name: String = device_name.chars().take(MAX_DEVICE_NAME).collect();
         let body = StartBody {
             client_name: CLIENT_NAME,
             client_version: &self.relay_version,
             device_name: &device_name,
+            scopes: &SCOPES,
+            platform: os_name(),
         };
         let response = self
             .send(self.http.post(self.url("/device/start")).json(&body))
@@ -293,7 +330,7 @@ impl RelayClient {
     }
 
     /// `GET /me`.
-    pub async fn me(&self, token: &Token) -> Result<Account, ClientError> {
+    pub async fn me(&self, token: &Token) -> Result<Me, ClientError> {
         let request = self.http.get(self.url("/me")).bearer_auth(token.expose());
         success_json(self.send(request).await?).await
     }

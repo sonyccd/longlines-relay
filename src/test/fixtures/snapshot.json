@@ -3,6 +3,27 @@
     "callsign": "KK4PWJ",
     "email": "op@example.com"
   },
+  "cluster": {
+    "addresses": {
+      "lan": "192.168.1.42",
+      "local": "127.0.0.1"
+    },
+    "clients": 1,
+    "enabled": true,
+    "label": "Running",
+    "lan": true,
+    "last_sent_at": "2026-10-28T14:14:09Z",
+    "listener": {
+      "port": 7373,
+      "state": "listening"
+    },
+    "port": 7373,
+    "sent_today": 2,
+    "status": "running",
+    "upstream": {
+      "state": "connected"
+    }
+  },
   "feed": {
     "dropped_packets": 0,
     "label": "Receiving",
@@ -19,6 +40,38 @@
   "pairing": {
     "state": "idle"
   },
+  "sent": [
+    {
+      "callsign": "K4ABC",
+      "connection": "POTA states",
+      "detail": "POTA K-0039 · from POTA states, CW",
+      "frequency_khz": 14062.0,
+      "id": 2,
+      "mode": "CW",
+      "reference": "POTA K-0039",
+      "sent_at": "2026-10-28T14:14:09Z",
+      "source_label": "POTA",
+      "spot_id": 48213377,
+      "test": false,
+      "time_utc": "14:14 UTC",
+      "title": "K4ABC · 14062.0 kHz CW"
+    },
+    {
+      "callsign": "LLTEST",
+      "connection": "",
+      "detail": "Test spot sent from this relay",
+      "frequency_khz": 14050.0,
+      "id": 1,
+      "mode": "CW",
+      "reference": null,
+      "sent_at": "2026-10-28T14:02:00Z",
+      "source_label": "",
+      "spot_id": null,
+      "test": true,
+      "time_utc": "14:02 UTC",
+      "title": "LLTEST · 14050.0 kHz CW"
+    }
+  ],
   "stream": [
     {
       "band": "40m",

@@ -21,8 +21,9 @@ default = []
 keyring = ["dep:keyring"]
 
 [dependencies]
-# Async runtime: the UDP listener, the pipeline and the sender loop are tasks.
-tokio = { version = "1.54", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+# Async runtime: the UDP listener, the pipeline, the sender loop and the spots stream are
+# tasks; io-util reads and writes the DX cluster's TCP connections.
+tokio = { version = "1.54", features = ["rt-multi-thread", "net", "sync", "time", "macros", "io-util"] }
 # Tolerant reader for the N1MM-format XML packets.
 quick-xml = "0.42"
 # Settings, queue rows, API bodies and UI events are serde types.

@@ -2,9 +2,10 @@
 //! (`src/test/fixtures/snapshot.json`), so a change to the shape breaks both sides.
 
 use chrono::{TimeZone, Utc};
+use relay_core::downstream::Spot;
 use relay_core::listeners::ListenerStatus;
 use relay_core::n1mm::ContactKind;
-use relay_core::state::{Account, RelayState, StreamRow};
+use relay_core::state::{Account, ClusterUpstream, RelayState, SentRow, StreamRow};
 use relay_core::status::RowStatus;
 use relay_core::upstream::auth::PairingView;
 use serde_json::Value;
@@ -45,7 +46,19 @@ fn snapshot() -> Value {
     ));
     state.record_packet(at(14, 22, 2));
     state.set_pairing(PairingView::Idle);
-    serde_json::to_value(state.snapshot(0)).unwrap()
+
+    state.set_cluster_enabled(true, at(14, 0, 0));
+    state.set_cluster_lan(true, Some("192.168.1.42".into()));
+    state.set_cluster_listener(ListenerStatus::Listening { port: 7373 }, at(14, 0, 0));
+    state.set_cluster_upstream(ClusterUpstream::Connected);
+    state.set_cluster_clients(1);
+    state.push_sent(SentRow::test_spot("LLTEST", 14050.0, "CW", at(14, 2, 0)));
+    let spot = Spot::from_data(
+        r#"{"id":48213377,"spotter":"W4DOG","frequency_khz":14062.0,"callsign":"K4ABC","comment":"CW POTA K-0039","time_utc":"1414","mode":"CW","reference":"POTA K-0039","source":"pota","source_label":"POTA","connection":"POTA states","spot_time":"2026-10-28T14:14:07Z"}"#,
+    )
+    .unwrap();
+    state.push_sent(SentRow::for_spot(&spot, at(14, 14, 9)));
+    serde_json::to_value(state.snapshot_at(0, at(14, 30, 0))).unwrap()
 }
 
 #[test]

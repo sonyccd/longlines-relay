@@ -71,6 +71,66 @@ export interface StreamRow {
   status_text: string;
 }
 
+export type ClusterStatus = "off" | "listening" | "running" | "port_in_use" | "scope_missing";
+
+/** The spots stream from Long Lines (contract section 9). */
+export type ClusterUpstream =
+  | { state: "off" }
+  | { state: "connecting" }
+  | { state: "connected" }
+  | { state: "retrying"; at: string };
+
+export interface ClusterAddresses {
+  /** Always "127.0.0.1". */
+  local: string;
+  /** This computer's network address, only while other computers may connect. */
+  lan: string | null;
+}
+
+export interface ClusterView {
+  /** The DX cluster switch. */
+  enabled: boolean;
+  status: ClusterStatus;
+  /** The chip's words, from the core. */
+  label: string;
+  listener: ListenerStatus;
+  /** The bound port, else the configured one. */
+  port: number;
+  /** "Let other computers on this network connect". */
+  lan: boolean;
+  addresses: ClusterAddresses;
+  /** RFC 3339 UTC. */
+  last_sent_at: string | null;
+  /** Spots sent since midnight UTC, test spots included. */
+  sent_today: number;
+  /** Programs connected to the cluster. */
+  clients: number;
+  upstream: ClusterUpstream;
+}
+
+export interface SentRow {
+  id: number;
+  /** The spot's id in Long Lines; null for a test spot. */
+  spot_id: number | null;
+  callsign: string;
+  frequency_khz: number;
+  mode: string | null;
+  /** Program first, "POTA K-0039". */
+  reference: string | null;
+  connection: string;
+  source_label: string;
+  /** RFC 3339 UTC. */
+  sent_at: string;
+  /** "K4ABC · 14062.0 kHz CW". */
+  title: string;
+  /** "POTA K-0039 · from POTA states, CW", or "Test spot sent from this relay". */
+  detail: string;
+  /** "21:14 UTC". */
+  time_utc: string;
+  /** The relay's own test spot. */
+  test: boolean;
+}
+
 export interface Snapshot {
   account: Account | null;
   feed: FeedView;
@@ -78,6 +138,10 @@ export interface Snapshot {
   pairing: PairingView;
   /** Newest first. */
   stream: StreamRow[];
+  /** The DX cluster tab. */
+  cluster: ClusterView;
+  /** Spots sent to logging software, newest first. */
+  sent: SentRow[];
 }
 
 export type UpdateView =

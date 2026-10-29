@@ -1,5 +1,6 @@
 //! What the UI shows: the feed card, the account, the upstream connection and the last 50
-//! stream rows. In memory only; test mode is always off at launch.
+//! stream rows, plus the DX cluster card and its last 50 spots sent. In memory only; test mode
+//! is always off at launch.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -15,6 +16,10 @@ use crate::upstream::auth::PairingView;
 
 /// Contacts seen keeps this many rows.
 pub const STREAM_LIMIT: usize = 50;
+/// Spots sent keeps this many rows.
+pub const SENT_LIMIT: usize = 50;
+/// The address logging software on this computer connects to.
+pub const LOOPBACK_ADDRESS: &str = "127.0.0.1";
 
 /// The Long Lines account the token belongs to (`GET /me`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,6 +195,202 @@ pub struct Snapshot {
     pub pairing: PairingView,
     /// Newest first.
     pub stream: Vec<StreamRow>,
+    /// The DX cluster tab.
+    pub cluster: ClusterView,
+    /// Spots sent to logging software, newest first.
+    pub sent: Vec<SentRow>,
+}
+
+/// The DX cluster card's chip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClusterStatus {
+    /// The switch is off; nothing listens.
+    Off,
+    /// Listening; no spot sent since it started.
+    Listening,
+    /// Listening, and a spot has been sent since it started.
+    Running,
+    /// No port could be bound.
+    PortInUse,
+    /// The token lacks `spots:read`: sign out and pair again (contract 3.1).
+    ScopeMissing,
+}
+
+impl ClusterStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            ClusterStatus::Off => "Off",
+            ClusterStatus::Listening => "Listening",
+            ClusterStatus::Running => "Running",
+            ClusterStatus::PortInUse => "Port in use",
+            ClusterStatus::ScopeMissing => "Sign in again",
+        }
+    }
+}
+
+/// The spots stream's state (contract section 9).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ClusterUpstream {
+    /// Closed: the switch is off, signed out, or the token can't read spots.
+    Off,
+    /// Opening, before `hello`.
+    Connecting,
+    /// Open; `hello` arrived.
+    Connected,
+    /// Closed after a failure; the next try is at `at`.
+    Retrying { at: DateTime<Utc> },
+}
+
+/// Where logging software connects.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ClusterAddresses {
+    /// Always `127.0.0.1`.
+    pub local: String,
+    /// This computer's network address, only while other computers may connect.
+    pub lan: Option<String>,
+}
+
+/// Everything the DX cluster card shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ClusterView {
+    /// The DX cluster switch.
+    pub enabled: bool,
+    pub status: ClusterStatus,
+    /// The chip's words.
+    pub label: String,
+    pub listener: ListenerStatus,
+    /// The bound port, else the configured one.
+    pub port: u16,
+    /// "Let other computers on this network connect".
+    pub lan: bool,
+    pub addresses: ClusterAddresses,
+    pub last_sent_at: Option<DateTime<Utc>>,
+    /// Spots sent since midnight UTC, test spots included.
+    pub sent_today: u64,
+    /// Programs connected to the cluster.
+    pub clients: usize,
+    pub upstream: ClusterUpstream,
+}
+
+/// One row of Spots sent.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SentRow {
+    pub id: u64,
+    /// The spot's id in Long Lines; `None` for a test spot.
+    pub spot_id: Option<u64>,
+    pub callsign: String,
+    pub frequency_khz: f64,
+    pub mode: Option<String>,
+    /// Program first (`POTA K-0039`).
+    pub reference: Option<String>,
+    /// The connection that matched it.
+    pub connection: String,
+    pub source_label: String,
+    pub sent_at: DateTime<Utc>,
+    /// "K4ABC · 14062.0 kHz CW".
+    pub title: String,
+    /// "POTA K-0039 · from POTA states, CW", or "Test spot sent from this relay".
+    pub detail: String,
+    /// "21:14 UTC": the spot's time.
+    pub time_utc: String,
+    /// The relay's own test spot.
+    pub test: bool,
+}
+
+impl SentRow {
+    /// A row for a spot from the stream. The id is assigned by [`RelayState::push_sent`].
+    pub fn for_spot(spot: &crate::downstream::Spot, sent_at: DateTime<Utc>) -> Self {
+        let mode = spot.mode.clone().filter(|m| !m.is_empty());
+        let reference = spot.reference.clone().filter(|r| !r.is_empty());
+        let mut from = (!spot.connection.is_empty()).then(|| format!("from {}", spot.connection));
+        if let (Some(from), Some(mode)) = (from.as_mut(), mode.as_deref()) {
+            from.push_str(", ");
+            from.push_str(mode);
+        }
+        let detail = [reference.clone(), from]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" \u{b7} ");
+        Self {
+            id: 0,
+            spot_id: Some(spot.id),
+            callsign: spot.callsign.clone(),
+            frequency_khz: spot.frequency_khz,
+            title: sent_title(&spot.callsign, spot.frequency_khz, mode.as_deref()),
+            mode,
+            reference,
+            connection: spot.connection.clone(),
+            source_label: spot.source_label.clone(),
+            sent_at,
+            detail,
+            time_utc: hhmm_label(&spot.time_utc).unwrap_or_else(|| utc_label(sent_at)),
+            test: false,
+        }
+    }
+
+    /// A row for the relay's test spot (contract 11.4).
+    pub fn test_spot(
+        callsign: &str,
+        frequency_khz: f64,
+        mode: &str,
+        sent_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            id: 0,
+            spot_id: None,
+            callsign: callsign.to_string(),
+            frequency_khz,
+            mode: Some(mode.to_string()),
+            reference: None,
+            connection: String::new(),
+            source_label: String::new(),
+            sent_at,
+            title: sent_title(callsign, frequency_khz, Some(mode)),
+            detail: "Test spot sent from this relay".into(),
+            time_utc: utc_label(sent_at),
+            test: true,
+        }
+    }
+}
+
+/// "K4ABC · 14062.0 kHz CW".
+fn sent_title(callsign: &str, frequency_khz: f64, mode: Option<&str>) -> String {
+    match mode {
+        Some(mode) => format!("{callsign} \u{b7} {frequency_khz:.1} kHz {mode}"),
+        None => format!("{callsign} \u{b7} {frequency_khz:.1} kHz"),
+    }
+}
+
+fn utc_label(t: DateTime<Utc>) -> String {
+    t.format("%H:%M UTC").to_string()
+}
+
+/// `2114` as "21:14 UTC"; `None` unless it is four digits.
+fn hhmm_label(hhmm: &str) -> Option<String> {
+    (hhmm.len() == 4 && hhmm.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| format!("{}:{} UTC", &hhmm[..2], &hhmm[2..]))
+}
+
+#[derive(Debug)]
+struct Cluster {
+    enabled: bool,
+    lan: bool,
+    lan_address: Option<String>,
+    listener: ListenerStatus,
+    /// When it last started listening (or was switched on); a spot sent since makes it Running.
+    since: Option<DateTime<Utc>>,
+    scope_missing: bool,
+    upstream: ClusterUpstream,
+    clients: usize,
+    last_sent_at: Option<DateTime<Utc>>,
+    /// The UTC day `sent_today` counts.
+    sent_day: Option<chrono::NaiveDate>,
+    sent_today: u64,
+    rows: VecDeque<SentRow>,
+    next_row_id: u64,
 }
 
 #[derive(Debug)]
@@ -204,6 +405,7 @@ struct Inner {
     account: Option<Account>,
     upstream: UpstreamStatus,
     pairing: PairingView,
+    cluster: Cluster,
 }
 
 /// Shared, lock-protected app state.
@@ -232,6 +434,23 @@ impl RelayState {
                 account: None,
                 upstream: UpstreamStatus::SignedOut,
                 pairing: PairingView::Idle,
+                cluster: Cluster {
+                    enabled: false,
+                    lan: false,
+                    lan_address: None,
+                    listener: ListenerStatus::Stopped {
+                        port: crate::settings::DEFAULT_CLUSTER_PORT,
+                    },
+                    since: None,
+                    scope_missing: false,
+                    upstream: ClusterUpstream::Off,
+                    clients: 0,
+                    last_sent_at: None,
+                    sent_day: None,
+                    sent_today: 0,
+                    rows: VecDeque::with_capacity(SENT_LIMIT),
+                    next_row_id: 1,
+                },
             }),
         }
     }
@@ -382,13 +601,152 @@ impl RelayState {
         }
     }
 
+    // ---- DX cluster ----
+
+    /// Turns the switch on or off; returns true when it changed.
+    pub fn set_cluster_enabled(&self, on: bool, now: DateTime<Utc>) -> bool {
+        let mut inner = self.lock();
+        let changed = inner.cluster.enabled != on;
+        inner.cluster.enabled = on;
+        if changed && on {
+            inner.cluster.since = Some(now);
+        }
+        changed
+    }
+
+    pub fn cluster_enabled(&self) -> bool {
+        self.lock().cluster.enabled
+    }
+
+    /// "Let other computers on this network connect", with the address they use.
+    pub fn set_cluster_lan(&self, on: bool, address: Option<String>) {
+        let mut inner = self.lock();
+        inner.cluster.lan = on;
+        inner.cluster.lan_address = address;
+    }
+
+    pub fn cluster_lan(&self) -> bool {
+        self.lock().cluster.lan
+    }
+
+    pub fn set_cluster_listener(&self, status: ListenerStatus, now: DateTime<Utc>) {
+        let mut inner = self.lock();
+        if matches!(status, ListenerStatus::Listening { .. }) {
+            inner.cluster.since = Some(now);
+        }
+        inner.cluster.listener = status;
+    }
+
+    pub fn cluster_listener(&self) -> ListenerStatus {
+        self.lock().cluster.listener.clone()
+    }
+
+    /// Returns true when it changed.
+    pub fn set_scope_missing(&self, missing: bool) -> bool {
+        let mut inner = self.lock();
+        let changed = inner.cluster.scope_missing != missing;
+        inner.cluster.scope_missing = missing;
+        changed
+    }
+
+    pub fn scope_missing(&self) -> bool {
+        self.lock().cluster.scope_missing
+    }
+
+    /// Returns true when it changed.
+    pub fn set_cluster_upstream(&self, status: ClusterUpstream) -> bool {
+        let mut inner = self.lock();
+        let changed = inner.cluster.upstream != status;
+        inner.cluster.upstream = status;
+        changed
+    }
+
+    /// Returns true when it changed.
+    pub fn set_cluster_clients(&self, clients: usize) -> bool {
+        let mut inner = self.lock();
+        let changed = inner.cluster.clients != clients;
+        inner.cluster.clients = clients;
+        changed
+    }
+
+    /// Adds a row at the top of Spots sent, assigning its id, and counts it.
+    pub fn push_sent(&self, mut row: SentRow) -> SentRow {
+        let mut inner = self.lock();
+        let cluster = &mut inner.cluster;
+        row.id = cluster.next_row_id;
+        cluster.next_row_id += 1;
+        let day = row.sent_at.date_naive();
+        if cluster.sent_day != Some(day) {
+            cluster.sent_day = Some(day);
+            cluster.sent_today = 0;
+        }
+        cluster.sent_today += 1;
+        cluster.last_sent_at = Some(row.sent_at);
+        cluster.rows.push_front(row.clone());
+        cluster.rows.truncate(SENT_LIMIT);
+        row
+    }
+
+    /// Newest first.
+    pub fn sent_rows(&self) -> Vec<SentRow> {
+        self.lock().cluster.rows.iter().cloned().collect()
+    }
+
+    /// The DX cluster card as of `now` (which decides what "today" is).
+    pub fn cluster_view(&self, now: DateTime<Utc>) -> ClusterView {
+        let inner = self.lock();
+        let c = &inner.cluster;
+        let running = match (c.since, c.last_sent_at) {
+            (Some(since), Some(last)) => last >= since,
+            _ => false,
+        };
+        let status = if !c.enabled {
+            ClusterStatus::Off
+        } else if matches!(c.listener, ListenerStatus::PortInUse { .. }) {
+            ClusterStatus::PortInUse
+        } else if c.scope_missing {
+            ClusterStatus::ScopeMissing
+        } else if running {
+            ClusterStatus::Running
+        } else {
+            ClusterStatus::Listening
+        };
+        ClusterView {
+            enabled: c.enabled,
+            status,
+            label: status.label().to_string(),
+            listener: c.listener.clone(),
+            port: c.listener.port(),
+            lan: c.lan,
+            addresses: ClusterAddresses {
+                local: LOOPBACK_ADDRESS.to_string(),
+                lan: if c.lan { c.lan_address.clone() } else { None },
+            },
+            last_sent_at: c.last_sent_at,
+            sent_today: if c.sent_day == Some(now.date_naive()) {
+                c.sent_today
+            } else {
+                0
+            },
+            clients: c.clients,
+            upstream: c.upstream.clone(),
+        }
+    }
+
     pub fn snapshot(&self, dropped_packets: u64) -> Snapshot {
+        self.snapshot_at(dropped_packets, Utc::now())
+    }
+
+    /// The snapshot as of `now` (tests pin the day).
+    pub fn snapshot_at(&self, dropped_packets: u64, now: DateTime<Utc>) -> Snapshot {
         Snapshot {
             feed: self.feed_view(dropped_packets),
             account: self.account(),
             upstream: self.upstream(),
             pairing: self.pairing(),
             stream: self.rows(),
+            cluster: self.cluster_view(now),
+            sent: self.sent_rows(),
         }
     }
 }
@@ -505,6 +863,104 @@ mod tests {
         assert!(state.set_pairing(PairingView::Starting));
         assert!(!state.set_pairing(PairingView::Starting));
         assert_eq!(state.snapshot(0).pairing, PairingView::Starting);
+    }
+
+    fn spot() -> crate::downstream::Spot {
+        crate::downstream::Spot::from_data(
+            r#"{"id":48213377,"spotter":"W4DOG","frequency_khz":14062.0,"callsign":"K4ABC","comment":"CW POTA K-0039","time_utc":"2114","mode":"CW","reference":"POTA K-0039","source":"pota","source_label":"POTA","connection":"POTA states","spot_time":"2026-10-28T21:14:07Z"}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn sent_rows_read_as_the_mocks() {
+        let row = SentRow::for_spot(&spot(), at(30));
+        assert_eq!(row.title, "K4ABC \u{b7} 14062.0 kHz CW");
+        assert_eq!(row.detail, "POTA K-0039 \u{b7} from POTA states, CW");
+        assert_eq!(row.time_utc, "21:14 UTC");
+        assert!(!row.test);
+        let mut bare = spot();
+        bare.mode = None;
+        bare.reference = None;
+        bare.time_utc = "late".into();
+        let row = SentRow::for_spot(&bare, at(30));
+        assert_eq!(row.title, "K4ABC \u{b7} 14062.0 kHz");
+        assert_eq!(row.detail, "from POTA states");
+        assert_eq!(row.time_utc, "14:30 UTC");
+        let test = SentRow::test_spot("LLTEST", 14050.0, "CW", at(2));
+        assert_eq!(test.title, "LLTEST \u{b7} 14050.0 kHz CW");
+        assert_eq!(test.detail, "Test spot sent from this relay");
+        assert_eq!(test.time_utc, "14:02 UTC");
+        assert!(test.test);
+    }
+
+    #[test]
+    fn cluster_status_priority_and_counts() {
+        let state = RelayState::new();
+        let view = state.cluster_view(at(0));
+        assert_eq!(view.status, ClusterStatus::Off);
+        assert_eq!(view.label, "Off");
+        assert_eq!(view.port, 7373);
+        assert_eq!(view.addresses.local, "127.0.0.1");
+        assert_eq!(view.upstream, ClusterUpstream::Off);
+
+        assert!(state.set_cluster_enabled(true, at(1)));
+        assert!(!state.set_cluster_enabled(true, at(1)));
+        state.set_cluster_listener(ListenerStatus::Listening { port: 7374 }, at(1));
+        let view = state.cluster_view(at(1));
+        assert_eq!(view.status, ClusterStatus::Listening);
+        assert_eq!(view.port, 7374);
+
+        state.push_sent(SentRow::for_spot(&spot(), at(2)));
+        state.push_sent(SentRow::test_spot("LLTEST", 14050.0, "CW", at(3)));
+        let view = state.cluster_view(at(4));
+        assert_eq!(view.status, ClusterStatus::Running);
+        assert_eq!(view.sent_today, 2);
+        assert_eq!(view.last_sent_at, Some(at(3)));
+        let rows = state.sent_rows();
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].test && rows[0].id > rows[1].id);
+        // A new day starts the count again.
+        assert_eq!(
+            state
+                .cluster_view(at(4) + chrono::TimeDelta::days(1))
+                .sent_today,
+            0
+        );
+
+        // A restart of the listener is Listening until the next spot.
+        state.set_cluster_listener(ListenerStatus::Listening { port: 7373 }, at(5));
+        assert_eq!(state.cluster_view(at(5)).status, ClusterStatus::Listening);
+
+        assert!(state.set_scope_missing(true));
+        assert_eq!(
+            state.cluster_view(at(5)).status,
+            ClusterStatus::ScopeMissing
+        );
+        state.set_cluster_listener(ListenerStatus::PortInUse { port: 7373 }, at(6));
+        assert_eq!(state.cluster_view(at(6)).status, ClusterStatus::PortInUse);
+        state.set_cluster_enabled(false, at(7));
+        assert_eq!(state.cluster_view(at(7)).status, ClusterStatus::Off);
+
+        state.set_cluster_lan(true, Some("192.168.1.42".into()));
+        assert_eq!(
+            state.cluster_view(at(7)).addresses.lan.as_deref(),
+            Some("192.168.1.42")
+        );
+        state.set_cluster_lan(false, Some("192.168.1.42".into()));
+        assert_eq!(state.cluster_view(at(7)).addresses.lan, None);
+        assert!(state.set_cluster_clients(3));
+        assert_eq!(state.cluster_view(at(7)).clients, 3);
+    }
+
+    #[test]
+    fn sent_rows_are_capped() {
+        let state = RelayState::new();
+        for _ in 0..60 {
+            state.push_sent(SentRow::for_spot(&spot(), at(1)));
+        }
+        assert_eq!(state.sent_rows().len(), SENT_LIMIT);
+        assert_eq!(state.cluster_view(at(1)).sent_today, 60);
     }
 
     #[test]

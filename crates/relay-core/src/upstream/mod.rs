@@ -1,9 +1,8 @@
 //! The outbound direction: contacts to Long Lines.
 //!
-//! [`queue`] keeps contacts on disk until the server answers, [`client`] speaks the v1 API,
+//! [`queue`] keeps contacts on disk until the server answers, [`client`] speaks the v2 API,
 //! [`auth`] runs device pairing and [`token_store`] keeps the token in the OS credential store.
-//! A phase 2 `downstream` module (spots from Long Lines into a local DX cluster) sits beside
-//! this one.
+//! [`crate::downstream`] (spots from Long Lines into a local DX cluster) sits beside this one.
 
 pub mod auth;
 pub mod client;

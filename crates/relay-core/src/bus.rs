@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use crate::state::{Account, FeedView, StreamRow, UpstreamStatus};
+use crate::state::{Account, ClusterView, FeedView, SentRow, StreamRow, UpstreamStatus};
 use crate::status::RowStatus;
 use crate::upstream::auth::PairingView;
 
@@ -56,6 +56,10 @@ pub enum Event {
     Auth(AuthEvent),
     /// The sign-in screen changed.
     Pairing(PairingView),
+    /// The DX cluster card changed.
+    Cluster(ClusterView),
+    /// A new row at the top of Spots sent.
+    SpotSent(SentRow),
 }
 
 /// A cloneable handle to the broadcast channel.

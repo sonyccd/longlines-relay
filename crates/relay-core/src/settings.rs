@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 pub const SETTINGS_VERSION: u32 = 1;
 /// N1MM Logger+'s default contact broadcast port.
 pub const DEFAULT_PORT: u16 = 12060;
+/// The local DX cluster's default port (contract 11.1).
+pub const DEFAULT_CLUSTER_PORT: u16 = 7373;
 /// The file name inside the app's config folder.
 pub const SETTINGS_FILE: &str = "settings.json";
 

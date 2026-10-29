@@ -78,6 +78,9 @@ impl Respond for StartResponder {
         let body: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
         assert_eq!(body["client_name"], "Long Lines Relay");
         assert_eq!(body["device_name"], "SHACK-PC");
+        // v2 asks for both scopes and names the platform (contract 4.1).
+        assert_eq!(body["scopes"], json!(["contacts:write", "spots:read"]));
+        assert_eq!(body["platform"], relay_core::upstream::client::os_name());
         if self.status != 200 {
             return ResponseTemplate::new(self.status);
         }
