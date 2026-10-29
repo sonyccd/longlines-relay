@@ -1,3 +1,5 @@
+<img src="src-tauri/icons/128x128@2x.png" alt="Long Lines Relay logo" width="96" height="96">
+
 # Long Lines Relay
 
 Long Lines Relay is a small desktop app that sends the contacts you log to
