@@ -81,8 +81,9 @@ AppImages need FUSE 2. On Ubuntu 22.04 install `libfuse2`; on Ubuntu 24.04 and l
 sudo apt install ./Long.Lines.Relay_*_amd64.deb
 ```
 
-A `.deb` install can't update itself: when a new version is out, the relay shows a **Download**
-link to the release instead of installing it. Install the new `.deb` the same way.
+A `.deb` install updates itself like the other installs: select **Install and restart** on the
+banner and enter your password when the system asks (the update runs `dpkg -i` on the new
+package).
 
 ### Linux notes
 
@@ -274,9 +275,9 @@ after changing anything in the updater, the bundle settings or the Release workf
    - **Windows, macOS, AppImage:** a banner "Version 0.1.1 of the relay is available." Select
      **Install and restart**. The relay restarts on its own, the Settings card shows "Version
      0.1.1", and it is still signed in.
-   - **.deb:** the banner offers **Download**, which opens the v0.1.1 release page. Install the
-     new `.deb` with apt, quit the relay from the tray and open it again; the Settings card
-     shows "Version 0.1.1" and it is still signed in.
+   - **.deb:** the same banner. **Install and restart** asks for the system password, then the
+     relay restarts as above. Cancelling the password prompt (a zenity
+     or kdialog one may follow) shows "Couldn't install version 0.1.1." with **Try again**.
 5. Check the log folder for `update installed; restarting`, and that no line holds the token.
 6. If a computer shows no banner, look in its log for `couldn't check for updates` and compare
    the release's `latest.json` with the platform names in the Release workflow's check.

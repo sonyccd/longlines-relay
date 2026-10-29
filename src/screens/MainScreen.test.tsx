@@ -202,7 +202,7 @@ describe("main screen", () => {
     expect(screen.getByText("Installing version 0.1.1. The relay restarts when it's done.")).toBeVisible();
   });
 
-  it("links a .deb install to the release instead of installing", async () => {
+  it("links a copy that can't update itself to the release instead of installing", async () => {
     const url = "https://github.com/sonyccd/longlines-relay/releases/tag/v0.1.1";
     const shell = mockTauri(signedInView({ update: { state: "manual", version: "0.1.1", url } }));
     const { user } = renderWithTheme(<App />);

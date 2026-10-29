@@ -1,8 +1,10 @@
 //! Self-update from GitHub Releases: a check at launch and daily; the page offers the update
 //! and installs it on request, then the app restarts.
 //!
-//! A copy installed from a .deb (or .rpm) package is owned by the system package manager, so
-//! it never replaces itself: the page links to the release instead (`UpdateView::Manual`).
+//! A .deb install updates itself too: the updater downloads the new package and installs it
+//! with `dpkg -i`, asking for the system password (pkexec, else a zenity or kdialog prompt), as
+//! Electron's updater does. Only a copy the updater can't replace gets a link to the release
+//! instead (`UpdateView::Manual`).
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -33,8 +35,8 @@ pub enum UpdateView {
     Available {
         version: String,
     },
-    /// An update this copy can't install over itself (a .deb or .rpm install): the page links
-    /// to the release so the user downloads the new package.
+    /// An update this copy can't install over itself (an .rpm install or a bare binary): the
+    /// page links to the release so the user downloads the new package.
     Manual {
         version: String,
         url: String,
@@ -63,11 +65,12 @@ impl Updates {
     }
 }
 
-/// Whether this copy can install an update over itself. On Linux only an AppImage can: a .deb
-/// or .rpm belongs to the package manager, and a bare binary (no bundle) has nothing to
+/// Whether this copy can install an update over itself. On Linux an AppImage and a .deb can
+/// (the .deb with the system password; the release's latest.json has a signed `-deb` entry). We
+/// build no .rpm, so one would find no entry, and a bare binary (no bundle) has nothing to
 /// replace. Windows (NSIS) and macOS (.app) always can.
 pub fn installs_in_place(os: &str, bundle: Option<BundleType>) -> bool {
-    os != "linux" || bundle == Some(BundleType::AppImage)
+    os != "linux" || matches!(bundle, Some(BundleType::AppImage | BundleType::Deb))
 }
 
 /// The release page for `version`.
@@ -176,9 +179,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_an_appimage_updates_itself_on_linux() {
+    fn an_appimage_and_a_deb_update_themselves_on_linux() {
         assert!(installs_in_place("linux", Some(BundleType::AppImage)));
-        assert!(!installs_in_place("linux", Some(BundleType::Deb)));
+        assert!(installs_in_place("linux", Some(BundleType::Deb)));
         assert!(!installs_in_place("linux", Some(BundleType::Rpm)));
         assert!(!installs_in_place("linux", None));
     }
@@ -191,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn a_deb_install_gets_the_release_page() {
+    fn a_copy_that_cant_update_itself_gets_the_release_page() {
         assert_eq!(
             offered("0.1.1", false),
             UpdateView::Manual {
