@@ -6,6 +6,8 @@ members = ["crates/relay-core", "src-tauri"]
 default-members = ["crates/relay-core"]
 resolver = "2"
 
+# Releases take their version from the tag (README "Releasing"); this one is only for local
+# builds. Keep it equal to tauri.conf.json and package.json (crates/relay-core/tests/versions.rs).
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
