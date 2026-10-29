@@ -4,6 +4,9 @@
 //! is backing off, everything behind it waits too. A failed batch backs off together,
 //! exponentially from 5 seconds to 5 minutes. Upserts that pass the 30-minute window while
 //! waiting are expired; deletes never age out.
+//!
+//! A row this build can't read (written by a newer version, or damaged) is moved to the
+//! `outbox_unreadable` table and logged, so it never blocks the rows behind it.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -128,7 +131,13 @@ impl Queue {
                 next_at integer not null,
                 last_error text
             );
-            create index if not exists outbox_external_id on outbox (external_id);",
+            create index if not exists outbox_external_id on outbox (external_id);
+            create table if not exists outbox_unreadable (
+                seq integer primary key,
+                body text not null,
+                error text not null,
+                moved_at integer not null
+            );",
         )?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version < SCHEMA_VERSION {
@@ -289,34 +298,62 @@ impl Queue {
         Ok(dropped)
     }
 
+    /// The rows `sql` selects, oldest first. Rows that can't be read are set aside, not returned.
     fn select(&self, sql: &str, args: impl rusqlite::Params) -> Result<Vec<QueueItem>, QueueError> {
-        let conn = self.lock();
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt
-            .query_map(args, |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, u32>(2)?,
-                    r.get::<_, i64>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter()
-            .map(|(seq, body, attempts, next_at, last_error)| {
-                let contact = serde_json::from_str(&body)
-                    .map_err(|source| QueueError::Row { seq, source })?;
-                Ok(QueueItem {
+        let mut conn = self.lock();
+        let rows = {
+            let mut stmt = conn.prepare(sql)?;
+            let rows = stmt
+                .query_map(args, |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, u32>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let mut items = Vec::with_capacity(rows.len());
+        let mut unreadable = Vec::new();
+        for (seq, body, attempts, next_at, last_error) in rows {
+            match serde_json::from_str(&body) {
+                Ok(contact) => items.push(QueueItem {
                     seq,
                     contact,
                     attempts,
                     next_at: from_ms(next_at),
                     last_error,
-                })
-            })
-            .collect()
+                }),
+                Err(source) => unreadable.push((seq, body, source)),
+            }
+        }
+        if !unreadable.is_empty() {
+            set_aside(&mut conn, unreadable)?;
+        }
+        Ok(items)
     }
+}
+
+/// Moves unreadable rows out of the outbox, keeping their bodies for a later version to read.
+fn set_aside(
+    conn: &mut Connection,
+    rows: Vec<(i64, String, serde_json::Error)>,
+) -> Result<(), QueueError> {
+    let tx = conn.transaction()?;
+    let now = ms(Utc::now());
+    for (seq, body, error) in rows {
+        tracing::error!(seq, error = %error, "set aside a queued contact this version can't read");
+        tx.execute(
+            "insert or replace into outbox_unreadable (seq, body, error, moved_at) values (?1, ?2, ?3, ?4)",
+            params![seq, body, error.to_string(), now],
+        )?;
+        tx.execute("delete from outbox where seq = ?1", params![seq])?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -474,6 +511,36 @@ mod tests {
         assert_eq!(q.remove_waiting("a", Op::Delete).unwrap(), vec![del]);
         assert!(q.remove_waiting("a", Op::Delete).unwrap().is_empty());
         assert_eq!(q.len().unwrap(), 2);
+    }
+
+    #[test]
+    fn unreadable_rows_are_set_aside() {
+        let q = Queue::open_in_memory(quick()).unwrap();
+        q.enqueue(&contact("a", Op::Upsert, now()), now()).unwrap();
+        q.lock()
+            .execute(
+                "insert into outbox (external_id, op, body, created_at, next_at) values ('bad', 'upsert', '{\"kind\": \"spot\"}', 0, 0)",
+                [],
+            )
+            .unwrap();
+        q.enqueue(&contact("b", Op::Upsert, now()), now()).unwrap();
+        let ids: Vec<_> = q
+            .pending()
+            .unwrap()
+            .into_iter()
+            .map(|i| i.contact.external_id)
+            .collect();
+        assert_eq!(ids, ["a", "b"]);
+        assert_eq!(q.len().unwrap(), 2);
+        let kept: i64 = q
+            .lock()
+            .query_row("select count(*) from outbox_unreadable", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1);
+        let NextBatch::Ready(items) = q.next_batch(now(), 100).unwrap() else {
+            panic!()
+        };
+        assert_eq!(items.len(), 2);
     }
 
     #[test]

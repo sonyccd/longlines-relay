@@ -30,6 +30,8 @@ pub enum AuthEvent {
     Account { account: Account },
     /// The token is gone from the credential store.
     SignedOut { reason: SignOutReason },
+    /// Whether a signed-out token is still waiting to be deleted from the credential store.
+    SignOutIncomplete { incomplete: bool },
 }
 
 /// Everything the relay announces.

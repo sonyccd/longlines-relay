@@ -19,6 +19,11 @@ export const copy = {
     ],
     seeHow: "See how",
     signIn: "Sign in with Long Lines",
+    // Invented: the brief has no words for a sign-out the credential store refused.
+    signOutIncomplete: {
+      title: "Couldn't remove the sign-in from this computer",
+      text: "The credential store wouldn't delete it. The relay won't use it again, and keeps trying to remove it.",
+    },
     noAccount: "No account?",
     createAccount: "Create one on Long Lines",
     failures: {
@@ -63,6 +68,19 @@ export const copy = {
     // Invented: the mockups always know the callsign; before `GET /me` answers the button has none.
     accountMenuLoading: "Account menu",
     menu: "Account",
+    // Invented: the mockups draw only Connected. The chip, and the alert on the Contacts tab.
+    retrying: "Retrying",
+    retryingTitle: "Contacts aren't going through",
+    retryingText: (reason: string, when: string) => `The last try failed (${reason}). Next try ${when}.`,
+    rateLimited: "Paused",
+    rateLimitedTitle: "Long Lines asked the relay to slow down",
+    rateLimitedText: (when: string) => `Contacts wait in the queue and go again ${when}.`,
+    credentialStore: "Can't read sign-in",
+    credentialStoreTitle: "Can't read the sign-in on this computer",
+    credentialStoreText:
+      "The relay keeps its sign-in in this computer's credential store, and couldn't read it. If your keychain or keyring is locked, unlock it; the relay keeps trying.",
+    soon: "shortly",
+    in: (left: string) => `in ${left}`,
     signOut: "Sign out",
   },
 
@@ -80,6 +98,9 @@ export const copy = {
     portInUse: (port: number) => `Port ${port} is in use by another program`,
     // Invented: the brief asks for a way to change the port but gives no words.
     portInUseHelp: "Choose another port here and in your logging software.",
+    // Invented: the feed takes its port back by itself; the DX cluster doesn't.
+    portInUseRetryHelp:
+      "The relay takes the port as soon as the other program lets it go. Or choose another port here and in your logging software.",
     waitingHelp: (port: number) =>
       `Turn on contact broadcasts in your logging software and send them to this computer on port ${port}.`,
     mismatchTitle: (mycall: string) => `Contacts are logged as ${mycall}`,

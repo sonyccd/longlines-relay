@@ -54,10 +54,13 @@ pub async fn cancel_sign_in(app: AppHandle, relay: State<'_, Relay>) -> Result<S
     Ok(view::build(&app))
 }
 
-/// Deletes the token from the credential store.
+/// Deletes the token from the credential store. When the store refuses, the relay is signed out
+/// anyway and the view's `sign_out_incomplete` tells the page; the core keeps trying.
 #[tauri::command]
 pub async fn sign_out(app: AppHandle, relay: State<'_, Relay>) -> Result<ShellView, String> {
-    relay.engine.sign_out().map_err(|e| e.to_string())?;
+    if let Err(e) = relay.engine.sign_out() {
+        tracing::warn!(error = %e, "signed out, but the token is still in the credential store");
+    }
     Ok(view::build(&app))
 }
 
@@ -71,8 +74,8 @@ pub async fn set_test_mode(
     Ok(view::build(&app))
 }
 
-/// Moves the listener to `port` and saves it. A port in use shows on the feed card; the relay
-/// never picks another port by itself.
+/// Moves the listener to `port` and saves it, or tries `port` again when it was in use. A port in
+/// use shows on the feed card; the relay never picks another port by itself.
 #[tauri::command]
 pub async fn set_port(
     app: AppHandle,
@@ -82,7 +85,7 @@ pub async fn set_port(
     if port == 0 {
         return Err("Port must be from 1 to 65535.".into());
     }
-    relay.engine.set_port(port);
+    relay.engine.set_port(port).await;
     relay.update_settings(|s| s.port = port)?;
     emit_state(&app);
     Ok(view::build(&app))

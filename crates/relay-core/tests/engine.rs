@@ -545,7 +545,7 @@ async fn a_held_port_shows_port_in_use_until_changed() {
     assert_eq!(feed.status, FeedStatus::PortInUse);
     assert_eq!(feed.label, "Port in use");
     assert_eq!(feed.port, held);
-    let status = engine.set_port(0);
+    let status = engine.set_port(0).await;
     assert!(matches!(
         status,
         relay_core::listeners::ListenerStatus::Listening { .. }

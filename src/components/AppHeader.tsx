@@ -5,14 +5,27 @@ import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import type { Run } from "../App";
 import { copy } from "../copy";
-import type { Account } from "../lib/types";
+import type { Account, UpstreamStatus } from "../lib/types";
+import { upstreamChip } from "../lib/upstream";
 import { AccountMenu } from "./AccountMenu";
 
 /**
- * The title, and while signed in the Connected chip and the account menu. The signed-out,
+ * The title, and while signed in the connection chip and the account menu. The signed-out,
  * signing-in and expired screens show the title alone.
  */
-export function AppHeader({ signedIn, account, run }: { signedIn: boolean; account: Account | null; run: Run }) {
+export function AppHeader({
+  signedIn,
+  account,
+  upstream,
+  run,
+}: {
+  signedIn: boolean;
+  account: Account | null;
+  /** Only read while signed in. */
+  upstream?: UpstreamStatus;
+  run: Run;
+}) {
+  const chip = upstream ? upstreamChip(upstream) : null;
   return (
     <AppBar position="static">
       <Toolbar sx={{ justifyContent: "space-between", gap: 1, pl: 3, pr: signedIn ? 1 : 3 }}>
@@ -21,7 +34,7 @@ export function AppHeader({ signedIn, account, run }: { signedIn: boolean; accou
         </Typography>
         {signedIn && (
           <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-            <Chip label={copy.header.connected} color="success" size="small" />
+            {chip && <Chip size="small" {...chip} />}
             <AccountMenu account={account} run={run} />
           </Stack>
         )}

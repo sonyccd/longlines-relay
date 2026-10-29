@@ -11,6 +11,7 @@ import { FeedCard } from "../components/FeedCard";
 import { SettingsCard } from "../components/SettingsCard";
 import { SpotsSentList } from "../components/SpotsSentList";
 import { UpdateBanner } from "../components/UpdateBanner";
+import { UpstreamAlert } from "../components/UpstreamAlert";
 import { copy } from "../copy";
 import type { ShellView } from "../lib/types";
 import { DxSetupScreen } from "./DxSetupScreen";
@@ -47,7 +48,7 @@ export function MainScreen({ view, run }: { view: ShellView; run: Run }) {
   }
   return (
     <>
-      <AppHeader signedIn account={view.account} run={run} />
+      <AppHeader signedIn account={view.account} upstream={view.upstream} run={run} />
       <Box sx={{ px: 1, borderBottom: 1, borderColor: "divider" }}>
         <Tabs value={tab} onChange={(_, next: TabId) => setTab(next)} aria-label={copy.tabs.label}>
           <Tab value="contacts" label={copy.tabs.contacts} id="tab-contacts" aria-controls="panel-contacts" />
@@ -57,6 +58,7 @@ export function MainScreen({ view, run }: { view: ShellView; run: Run }) {
       <Panel id="contacts" selected={tab}>
         <Stack spacing={2}>
           <UpdateBanner update={view.update} run={run} />
+          <UpstreamAlert upstream={view.upstream} />
           <FeedCard feed={view.feed} account={view.account} run={run} />
           <ContactsCard rows={view.stream} testMode={view.feed.test_mode} />
           <SettingsCard settings={view.settings} version={view.version} run={run} />

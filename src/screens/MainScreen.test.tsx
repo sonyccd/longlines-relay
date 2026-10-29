@@ -97,6 +97,47 @@ describe("main screen", () => {
     expect(screen.getByRole("region", { name: "Logging feed" })).toBeVisible();
   });
 
+  it("says when contacts aren't going through", async () => {
+    mockTauri(
+      signedInView({
+        upstream: { state: "retrying", at: "2026-10-28T14:22:58Z", reason: "couldn't reach Long Lines" },
+      }),
+    );
+    renderWithTheme(<App />);
+    await screen.findByRole("button", { name: "Account menu, KK4PWJ" });
+    const header = within(screen.getByRole("banner"));
+    expect(header.getByText("Retrying")).toBeVisible();
+    expect(header.queryByText("Connected")).toBeNull();
+    const status = within(screen.getByRole("tabpanel")).getByRole("status");
+    expect(status).toHaveTextContent("Contacts aren't going through");
+    expect(status).toHaveTextContent("The last try failed (couldn't reach Long Lines). Next try in 0:42.");
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(status).toHaveTextContent("Next try shortly.");
+  });
+
+  it("says when Long Lines asked the relay to slow down", async () => {
+    mockTauri(signedInView({ upstream: { state: "rate_limited", until: "2026-10-28T14:23:16Z" } }));
+    renderWithTheme(<App />);
+    await screen.findByRole("button", { name: "Account menu, KK4PWJ" });
+    expect(within(screen.getByRole("banner")).getByText("Paused")).toBeVisible();
+    expect(within(screen.getByRole("tabpanel")).getByRole("status")).toHaveTextContent(
+      "Contacts wait in the queue and go again in 1:00.",
+    );
+  });
+
+  it("stays on the main screen while the credential store can't be read", async () => {
+    mockTauri(signedInView({ account: null, upstream: { state: "credential_store_unavailable" } }));
+    renderWithTheme(<App />);
+    await screen.findByRole("button", { name: "Account menu" });
+    expect(within(screen.getByRole("banner")).getByText("Can't read sign-in")).toBeVisible();
+    expect(within(screen.getByRole("tabpanel")).getByRole("status")).toHaveTextContent(
+      "Can't read the sign-in on this computer",
+    );
+    expect(screen.queryByRole("button", { name: "Sign in with Long Lines" })).toBeNull();
+  });
+
   it("shows the feed receiving, ticking every second", async () => {
     mockTauri(signedInView());
     renderWithTheme(<App />);
@@ -207,6 +248,9 @@ describe("main screen", () => {
     expect(feedCard.getByText("Port in use")).toBeVisible();
     expect(feedCard.getByRole("alert")).toHaveTextContent("Port 12060 is in use by another program");
     expect(feedCard.queryByText("Listening on UDP port 12060")).toBeNull();
+    expect(feedCard.getByRole("alert")).toHaveTextContent(
+      "The relay takes the port as soon as the other program lets it go.",
+    );
 
     const field = feedCard.getByRole("textbox", { name: "UDP port" });
     const change = feedCard.getByRole("button", { name: "Change port" });

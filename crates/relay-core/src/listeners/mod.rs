@@ -43,9 +43,10 @@ pub struct Datagram {
 
 /// The shared lifecycle. `start` must be called inside a Tokio runtime.
 pub trait Listener: Send + Sync {
-    /// Binds and starts receiving. Calling it while running restarts it.
+    /// Binds and starts receiving. While it is already receiving it keeps the socket it has; after
+    /// a failed bind it tries again.
     fn start(&self) -> ListenerStatus;
-    /// Stops receiving and releases the port.
+    /// Stops receiving. The port is released once the receive task has ended.
     fn stop(&self);
     fn status(&self) -> ListenerStatus;
 }

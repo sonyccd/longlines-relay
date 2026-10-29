@@ -47,6 +47,8 @@ pub const DEFAULT_BASE_URL: &str = "https://api.longlines.io/relay/v2";
 pub const BASE_URL_ENV: &str = "LONGLINES_RELAY_API_BASE";
 /// The wait after a 429 whose `Retry-After` cannot be read.
 pub const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(60);
+/// The longest `Retry-After` the relay honours. A larger value (a misbehaving proxy) waits this.
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(3600);
 /// The longest one request may take.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// `client_name` for `POST /device/start`.
@@ -408,13 +410,16 @@ async fn classify(
     }
 }
 
-/// `Retry-After` in whole seconds; anything else waits [`DEFAULT_RETRY_AFTER`].
+/// `Retry-After` in whole seconds, at most [`MAX_RETRY_AFTER`]; anything else waits
+/// [`DEFAULT_RETRY_AFTER`].
 pub fn retry_after(headers: &HeaderMap) -> Duration {
     headers
         .get(RETRY_AFTER)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u64>().ok())
-        .map_or(DEFAULT_RETRY_AFTER, Duration::from_secs)
+        .map_or(DEFAULT_RETRY_AFTER, |secs| {
+            Duration::from_secs(secs).min(MAX_RETRY_AFTER)
+        })
 }
 
 async fn error_code(response: reqwest::Response) -> Option<String> {
@@ -478,6 +483,8 @@ mod tests {
         assert_eq!(retry_after(&headers), DEFAULT_RETRY_AFTER);
         headers.insert(RETRY_AFTER, HeaderValue::from_static("-3"));
         assert_eq!(retry_after(&headers), DEFAULT_RETRY_AFTER);
+        headers.insert(RETRY_AFTER, HeaderValue::from_static("100000000000000"));
+        assert_eq!(retry_after(&headers), MAX_RETRY_AFTER);
     }
 
     #[test]

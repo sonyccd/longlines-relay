@@ -57,6 +57,10 @@ pub const EDIT_WINDOW: Duration = Duration::from_secs(10);
 pub const IDLE_TICK: Duration = Duration::from_secs(5);
 /// One second of the pairing protocol (`interval`, `expires_in`). Tests shorten it.
 pub const PAIRING_SECOND: Duration = Duration::from_secs(1);
+/// While the port is in use, binding it is tried again this often.
+pub const PORT_RETRY: Duration = Duration::from_secs(5);
+/// Next to the queue: present while a signed-out token is still in the credential store.
+const SIGN_OUT_MARKER: &str = "sign-out-pending";
 /// The longest callsign the server accepts.
 const MAX_CALL_LEN: usize = 64;
 /// The longest mode the server accepts.
@@ -102,6 +106,7 @@ pub struct EngineConfig {
     pub keepalive_timeout: Duration,
     /// How long a stream stays open after `hello` before the backoff starts over.
     pub stream_stable_after: Duration,
+    pub port_retry: Duration,
 }
 
 impl EngineConfig {
@@ -130,6 +135,7 @@ impl EngineConfig {
             device_name: auth::FALLBACK_DEVICE_NAME.to_string(),
             keepalive_timeout: stream::KEEPALIVE_TIMEOUT,
             stream_stable_after: stream::STABLE_AFTER,
+            port_retry: PORT_RETRY,
         }
     }
 }
@@ -166,6 +172,10 @@ struct Shared {
     client: RelayClient,
     tokens: Arc<dyn TokenStore>,
     filter: Arc<SourceFilter>,
+    /// Held across a port change, so the old socket is gone before the new one binds.
+    listener: tokio::sync::Mutex<UdpListener>,
+    /// See [`SIGN_OUT_MARKER`].
+    sign_out_marker: PathBuf,
     wake: Notify,
     /// Which stream row each queued item belongs to.
     rows_by_seq: Mutex<HashMap<i64, u64>>,
@@ -178,6 +188,7 @@ struct Shared {
     edit_window: TimeDelta,
     idle_tick: Duration,
     pairing_second: Duration,
+    port_retry: Duration,
     /// Bumped by every sign-in start and cancel, so a stale attempt never shows.
     pairing_attempt: AtomicU64,
     /// The latest `GET /me`, for the spots stream's URL and scopes.
@@ -199,7 +210,6 @@ struct Shared {
 #[derive(Debug)]
 pub struct Engine {
     shared: Arc<Shared>,
-    listener: Mutex<Arc<UdpListener>>,
     /// The DX cluster's listener; replaced when its port or bind address changes.
     cluster: Mutex<Arc<ClusterServer>>,
     /// Serialises the DX cluster's switch, port and network changes: each one waits for the old
@@ -224,6 +234,8 @@ impl Engine {
         };
         let stream_client = StreamClient::new(&stream_config)?;
         let client = RelayClient::new(config.client)?;
+        let (tx, rx) = mpsc::channel(DATAGRAM_BACKLOG);
+        let listener = UdpListener::new(config.port, Arc::clone(&config.source_filter), tx.clone());
         let shared = Arc::new(Shared {
             state: RelayState::new(),
             bus: Bus::default(),
@@ -231,6 +243,8 @@ impl Engine {
             client,
             tokens: config.token_store,
             filter: config.source_filter,
+            listener: tokio::sync::Mutex::new(listener),
+            sign_out_marker: config.queue_path.with_file_name(SIGN_OUT_MARKER),
             wake: Notify::new(),
             rows_by_seq: Mutex::new(HashMap::new()),
             account_checked_at: Mutex::new(None),
@@ -241,6 +255,7 @@ impl Engine {
             edit_window: TimeDelta::from_std(config.edit_window).unwrap_or(TimeDelta::seconds(10)),
             idle_tick: config.idle_tick,
             pairing_second: config.pairing_second,
+            port_retry: config.port_retry,
             pairing_attempt: AtomicU64::new(0),
             me: Mutex::new(None),
             granted_scopes: Mutex::new(None),
@@ -269,17 +284,27 @@ impl Engine {
             .state
             .set_cluster_listener(cluster_status, Utc::now());
         shared.restore_rows()?;
-        if matches!(shared.tokens.load(), Ok(Some(_))) {
-            shared.state.set_upstream(UpstreamStatus::Connected);
+        if shared.sign_out_marker.exists() {
+            // Signed out last run, but the credential store kept the token.
+            shared.state.set_sign_out_incomplete(true);
+            shared.retry_token_delete();
+        }
+        if !shared.state.sign_out_incomplete() {
+            match shared.tokens.load() {
+                Ok(Some(_)) => {
+                    shared.state.set_upstream(UpstreamStatus::Connected);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "couldn't read the token; trying again");
+                    shared
+                        .state
+                        .set_upstream(UpstreamStatus::CredentialStoreUnavailable);
+                }
+            }
         }
 
-        let (tx, rx) = mpsc::channel(DATAGRAM_BACKLOG);
-        let listener = Arc::new(UdpListener::new(
-            config.port,
-            Arc::clone(&shared.filter),
-            tx.clone(),
-        ));
-        let status = listener.start();
+        let status = shared.listener.lock().await.start();
         shared.state.set_listener(status, Utc::now());
         let tasks = vec![
             tokio::spawn(pipeline(Arc::clone(&shared), rx)),
@@ -291,11 +316,11 @@ impl Engine {
                 shared.stream_changes.subscribe(),
             )),
             tokio::spawn(watch_clients(Arc::clone(&shared))),
+            tokio::spawn(rebind(Arc::clone(&shared))),
         ];
         shared.publish_feed();
         Ok(Self {
             shared,
-            listener: Mutex::new(listener),
             cluster: Mutex::new(Arc::new(cluster)),
             cluster_changes: tokio::sync::Mutex::new(()),
             datagrams: tx,
@@ -427,17 +452,23 @@ impl Engine {
         Ok(row)
     }
 
-    /// Moves the listener to another port. The caller saves the setting.
-    pub fn set_port(&self, port: u16) -> ListenerStatus {
-        let mut current = self.listener.lock().unwrap_or_else(|e| e.into_inner());
-        current.stop();
-        let listener = Arc::new(UdpListener::new(
+    /// Moves the listener to another port, or tries the same port again when it was in use. The
+    /// caller saves the setting.
+    pub async fn set_port(&self, port: u16) -> ListenerStatus {
+        let mut current = self.shared.listener.lock().await;
+        let status = current.status();
+        if status == (ListenerStatus::Listening { port }) {
+            return status;
+        }
+        // Wait for the old socket to close, or binding the same port again would fail.
+        current.shutdown().await;
+        *current = UdpListener::new(
             port,
             Arc::clone(&self.shared.filter),
             self.datagrams.clone(),
-        ));
-        let status = listener.start();
-        *current = listener;
+        );
+        let status = current.start();
+        drop(current);
         self.shared.state.set_listener(status.clone(), Utc::now());
         self.shared.publish_feed();
         status
@@ -519,8 +550,15 @@ impl Engine {
 
     /// Deletes the token. Queued contacts stay queued for the next sign-in, which checks their
     /// station callsign against that account before sending.
+    ///
+    /// When the credential store can't delete the token, the relay stops using it anyway and
+    /// keeps trying to delete it, across restarts, until it succeeds or the user signs in again.
     pub fn sign_out(&self) -> Result<(), TokenStoreError> {
         let result = self.shared.tokens.delete();
+        if let Err(e) = &result {
+            tracing::warn!(error = %e, "couldn't delete the token; will keep trying");
+        }
+        self.shared.set_sign_out_incomplete(result.is_err());
         self.shared.signed_out(SignOutReason::User);
         result
     }
@@ -536,10 +574,6 @@ impl Engine {
         self.abort_pairing_task();
         let tasks: Vec<_> =
             std::mem::take(&mut *self.tasks.lock().unwrap_or_else(|e| e.into_inner()));
-        self.listener
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .stop();
         self.cluster().close().await;
         for task in &tasks {
             task.abort();
@@ -547,6 +581,7 @@ impl Engine {
         for task in tasks {
             let _ = task.await;
         }
+        self.shared.listener.lock().await.shutdown().await;
     }
 }
 
@@ -562,6 +597,14 @@ impl Drop for Engine {
             task.abort();
         }
     }
+}
+
+/// `now` plus `wait`, without panicking past the calendar's end.
+fn later(now: DateTime<Utc>, wait: Duration) -> DateTime<Utc> {
+    TimeDelta::from_std(wait)
+        .ok()
+        .and_then(|d| now.checked_add_signed(d))
+        .unwrap_or(DateTime::<Utc>::MAX_UTC)
 }
 
 fn utc_text(t: DateTime<Utc>) -> String {
@@ -677,6 +720,8 @@ impl Shared {
             }
         }
         self.tokens.save(&token)?;
+        // The new token took the old one's place in the credential store.
+        self.set_sign_out_incomplete(false);
         *self.me_lock() = None;
         *self.granted_lock() = granted;
         self.scope_refused.store(false, Ordering::SeqCst);
@@ -702,6 +747,37 @@ impl Shared {
                 self.wake.notify_one();
                 Err(e.into())
             }
+        }
+    }
+
+    /// Records whether a signed-out token is still in the credential store, here and on disk.
+    fn set_sign_out_incomplete(&self, incomplete: bool) {
+        let marker = &self.sign_out_marker;
+        let written = if incomplete {
+            std::fs::write(marker, b"")
+        } else {
+            match std::fs::remove_file(marker) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            }
+        };
+        if let Err(e) = written {
+            tracing::warn!(error = %e, path = %marker.display(), "couldn't update the sign-out marker");
+        }
+        if self.state.set_sign_out_incomplete(incomplete) {
+            self.bus
+                .publish(Event::Auth(AuthEvent::SignOutIncomplete { incomplete }));
+        }
+    }
+
+    /// Tries again to delete a signed-out token.
+    fn retry_token_delete(&self) {
+        match self.tokens.delete() {
+            Ok(()) => {
+                tracing::info!("deleted the signed-out token");
+                self.set_sign_out_incomplete(false);
+            }
+            Err(e) => tracing::debug!(error = %e, "still couldn't delete the token"),
         }
     }
 
@@ -1139,8 +1215,7 @@ impl Shared {
             }
             Err(ClientError::SignedOut) => self.refused(token),
             Err(ClientError::RateLimited { retry_after }) => {
-                let until =
-                    now + TimeDelta::from_std(retry_after).unwrap_or(TimeDelta::seconds(60));
+                let until = later(now, retry_after);
                 tracing::info!(
                     seconds = retry_after.as_secs(),
                     "rate limited by Long Lines"
@@ -1179,7 +1254,11 @@ impl Shared {
 
 impl StreamHost for Shared {
     fn target(&self) -> Target {
-        if !self.state.cluster_enabled() || self.state.scope_missing() {
+        // A token whose delete failed on sign-out is never used again.
+        if !self.state.cluster_enabled()
+            || self.state.scope_missing()
+            || self.state.sign_out_incomplete()
+        {
             return Target::Off;
         }
         let Ok(Some(token)) = self.tokens.load() else {
@@ -1330,11 +1409,40 @@ async fn pipeline(shared: Arc<Shared>, mut rx: mpsc::Receiver<Datagram>) {
     }
 }
 
+/// While another program holds the port, tries it again, so the relay picks the port up as soon
+/// as it is free. It never moves to another port by itself.
+async fn rebind(shared: Arc<Shared>) {
+    loop {
+        tokio::time::sleep(shared.port_retry).await;
+        let listener = shared.listener.lock().await;
+        if !matches!(listener.status(), ListenerStatus::PortInUse { .. }) {
+            continue;
+        }
+        let status = listener.start();
+        drop(listener);
+        if let ListenerStatus::Listening { port } = status {
+            tracing::info!(port, "the port is free again");
+            shared.state.set_listener(status, Utc::now());
+            shared.publish_feed();
+        }
+    }
+}
+
 async fn sender(shared: Arc<Shared>) {
     let mut rate = RateWindow::new(shared.contacts_per_minute);
     let mut account_failures: u32 = 0;
     loop {
         shared.expire(Utc::now());
+
+        if shared.state.sign_out_incomplete() {
+            shared.retry_token_delete();
+            if shared.state.sign_out_incomplete() {
+                // Signed out: the token still in the credential store is never used.
+                shared.set_upstream(UpstreamStatus::SignedOut);
+                shared.idle(None).await;
+                continue;
+            }
+        }
 
         let token = match shared.tokens.load() {
             Ok(Some(token)) => token,
@@ -1344,8 +1452,11 @@ async fn sender(shared: Arc<Shared>) {
                 continue;
             }
             Err(e) => {
-                tracing::warn!(error = %e, "couldn't read the token");
-                shared.set_upstream(UpstreamStatus::SignedOut);
+                // Not signed out: the token may be there once the keyring unlocks.
+                if shared.state.upstream() != UpstreamStatus::CredentialStoreUnavailable {
+                    tracing::warn!(error = %e, "couldn't read the token; trying again");
+                }
+                shared.set_upstream(UpstreamStatus::CredentialStoreUnavailable);
                 shared.idle(None).await;
                 continue;
             }
@@ -1375,8 +1486,7 @@ async fn sender(shared: Arc<Shared>) {
                             ClientError::RateLimited { retry_after } => *retry_after,
                             _ => shared.backoff.delay(account_failures),
                         };
-                        let at = Utc::now()
-                            + TimeDelta::from_std(wait).unwrap_or(TimeDelta::seconds(60));
+                        let at = later(Utc::now(), wait);
                         shared.set_upstream(UpstreamStatus::Retrying {
                             at,
                             reason: e.to_string(),
