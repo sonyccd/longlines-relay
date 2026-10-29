@@ -95,7 +95,13 @@ export function FeedCard({ feed, account, run }: { feed: FeedView; account: Acco
               <AlertTitle>{copy.feed.portInUse(feed.port)}</AlertTitle>
               <Stack spacing={2}>
                 <span>{copy.feed.portInUseHelp}</span>
-                <PortField key={feed.port} id="feed-port" port={feed.port} run={run} />
+                <PortField
+                  key={feed.port}
+                  id="feed-port"
+                  label={copy.settings.port}
+                  port={feed.port}
+                  onChange={(port) => run(() => relay.setPort(port))}
+                />
               </Stack>
             </Alert>
           )}

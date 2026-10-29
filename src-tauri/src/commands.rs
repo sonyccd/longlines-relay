@@ -5,7 +5,9 @@ use relay_core::upstream::auth::{browser_url_ok, device_name_from, PairingView};
 use tauri::{AppHandle, State};
 
 use crate::view::{self, ShellView};
-use crate::{emit_state, open_in_browser, Relay, RELAY_SETUP_DOCS_URL, SIGN_UP_URL};
+use crate::{
+    emit_state, open_in_browser, Relay, ADD_DESTINATION_URL, RELAY_SETUP_DOCS_URL, SIGN_UP_URL,
+};
 
 /// Opens the pairing page if the server's URL is one the browser may open.
 fn open_pairing_page(app: &AppHandle, view: &PairingView) {
@@ -157,6 +159,12 @@ pub async fn open_setup_docs(app: AppHandle) {
 #[tauri::command]
 pub async fn open_sign_up(app: AppHandle) {
     open_in_browser(&app, SIGN_UP_URL);
+}
+
+/// "Add destination" on the DX cluster tab.
+#[tauri::command]
+pub async fn open_add_destination(app: AppHandle) {
+    open_in_browser(&app, ADD_DESTINATION_URL);
 }
 
 #[tauri::command]

@@ -23,7 +23,9 @@ describe("main screen", () => {
   it("shows the Connected chip and signs out from the account menu", async () => {
     const shell = mockTauri(signedInView());
     const { user } = renderWithTheme(<App />);
-    const header = within(await screen.findByRole("banner"));
+    // The loading screen's header gives way to the main screen's, which carries the account.
+    await screen.findByRole("button", { name: "Account menu, KK4PWJ" });
+    const header = within(screen.getByRole("banner"));
     expect(header.getByRole("heading", { level: 1, name: "Long Lines Relay" })).toBeVisible();
     expect(header.getByText("Connected")).toBeVisible();
     const button = header.getByRole("button", { name: "Account menu, KK4PWJ" });
@@ -83,8 +85,9 @@ describe("main screen", () => {
     await user.click(dxTab);
     expect(dxTab).toHaveAttribute("aria-selected", "true");
     expect(contactsTab).toHaveAttribute("aria-selected", "false");
-    const dxPanel = screen.getByRole("tabpanel", { name: "DX cluster" });
-    expect(dxPanel).toBeEmptyDOMElement();
+    const dxPanel = within(screen.getByRole("tabpanel", { name: "DX cluster" }));
+    expect(dxPanel.getByRole("region", { name: "Local DX cluster" })).toBeVisible();
+    expect(dxPanel.getByRole("region", { name: "Spots sent" })).toBeVisible();
     expect(screen.queryByRole("region", { name: "Logging feed" })).toBeNull();
     expect(screen.queryByRole("tabpanel", { name: "Contacts" })).toBeNull();
     // The header stays.

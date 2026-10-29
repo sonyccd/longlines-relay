@@ -8,12 +8,18 @@ contact on your computer in the N1MM Logger+ format; the relay catches those pac
 each contact, so your side of a contact sits next to what POTA, the Reverse Beacon Network and
 the cluster heard. For example: "KK4PWJ worked W1AW on 14.025 CW at 21:14Z."
 
+It can also go the other way: turn on its local DX cluster and the spots that match your Long
+Lines connections show up in your logging software's bandmap, as if it were connected to a DX
+cluster on the internet.
+
 It runs on Windows 10 and 11 (x64), macOS (Apple Silicon and Intel) and Linux (x64).
 
 **Privacy.** Logged contacts become spots that other Long Lines users can see and route, like
 spots from any other source. The relay only listens for packets from this computer, keeps its
 sign-in token in your operating system's credential store, and never writes the token to its
-settings or log files.
+settings or log files. Its DX cluster is off until you turn it on, and then accepts connections
+from this computer only, unless you let other computers on your network connect; it has no
+password, so while that is on anyone on your network can read your spots.
 
 - [Install](#install)
 - [Set up your logging software](docs/loggers.md)
@@ -101,6 +107,13 @@ package).
 3. Log contacts as usual. Each one shows up under "Contacts seen" and on Long Lines a moment
    later. Test mode shows contacts without sending them.
 
+For spots in your bandmap, add a **Local DX cluster** destination for this computer in Long
+Lines, turn on **Local DX cluster** on the relay's **DX cluster** tab, and connect your logger
+to the address and port the tab shows (`127.0.0.1`, port 7373). **Set up logging software** on
+that tab walks through it, and [the DX cluster section](docs/loggers.md#dx-cluster) has the
+details. If the tab says "Sign in again to use the DX cluster", this computer was signed in
+before the relay could receive spots: select **Sign in again** and approve it in your browser.
+
 Closing the window keeps the relay running in the tray (menu bar on macOS); **Quit** is in the
 tray menu, next to **Open log folder**. The relay starts when you log in unless you turn off
 "Start when I log in" in its settings. You can disconnect a computer any time from **API
@@ -116,7 +129,7 @@ The repository is a Cargo workspace plus a Vite app:
 | `src-tauri` | The Tauri 2 shell: window, tray, commands, updater, autostart. |
 | `src` | The window (React, TypeScript, MUI). |
 | `docs/contract.md` | The API between the relay and Long Lines (v1 and v2, which the relay uses). |
-| `docs/loggers.md` | Logger setup and the verified logger facts. It is the page "Set up logging software" opens. |
+| `docs/loggers.md` | Logger setup and the verified logger facts. It is the page that "Set up logging software" on the Contacts tab and "See how" on the signed-out screen open; on the DX cluster tab, "Set up logging software" opens the setup screen in the window instead. |
 
 You need Rust (stable) and Node.js 22 or later. Building the shell on Linux also needs the
 Tauri system libraries:
@@ -181,6 +194,18 @@ cargo run -p relay-core --bin fake-logger -- --help
 4. For the DX cluster, also run the sender there (`cd web && npm run sender`): the spots stream
    is the URL `GET /me` returns as `spots_url`, `http://127.0.0.1:8081/v2/spots` locally. The
    relay opens it only while its DX cluster switch is on.
+
+5. Turn on **Local DX cluster** on the DX cluster tab and stand in for a logger with any telnet
+   client:
+
+   ```sh
+   telnet 127.0.0.1 7373      # or: nc 127.0.0.1 7373
+   ```
+
+   Answer `login:` with a callsign. The greeting and a prompt follow; **Send test spot** in the
+   relay prints the `LLTEST` line, and a spot that matches a connection with a Local DX cluster
+   destination for this relay prints its line a moment after the sender claims it. `bye`
+   closes the connection.
 
 Development builds never check for updates and never register a login item. Logs go to the
 terminal and to the log folder (tray menu, **Open log folder**).

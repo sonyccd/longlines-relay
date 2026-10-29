@@ -27,6 +27,9 @@ anything.
 Other loggers that send N1MM-format `contactinfo` packets should work. The relay does not read
 WSJT-X's own UDP format, ADIF files or log files, and it ignores packets from other computers.
 
+The relay can also go the other way: its [DX cluster](#dx-cluster) shows the spots that match
+your Long Lines connections in your logger's bandmap.
+
 ## N1MM Logger+
 
 1. Open **Config > Configure Ports, Mode Control, Winkey, etc.** and select the **Broadcast
@@ -82,6 +85,95 @@ does not change or remove its spot on Long Lines.
 Not1MM sends radio packets to port 12060 by default, so the relay can show "Receiving" while
 contacts still go to 12061. If the relay shows "Receiving" but no contacts appear, check the
 contact port.
+
+## DX cluster
+
+The relay's DX cluster shows Long Lines spots in your logging software's bandmap. Your logger
+connects to the relay through its Telnet (DX cluster) window, as it would to a DXSpider node on
+the internet, and the relay passes on each spot that one of your Long Lines connections matches.
+It only receives: nothing your logger sends through the cluster reaches Long Lines, and spots
+you enter in the logger go nowhere. Nothing tunes your radio.
+
+### In Long Lines
+
+1. Open **Destinations**, add a destination and pick **Local DX cluster**. Choose this
+   computer's relay. The relay's DX cluster tab links there (**Add destination**).
+2. Link the destination to the connections whose spots you want in the bandmap.
+
+### In the relay
+
+1. On the **DX cluster** tab, turn on **Local DX cluster**. Nothing listens on this computer
+   until you do.
+2. The tab shows the address and port your logger connects to: `127.0.0.1` and port `7373`.
+   If another program already has port 7373, the relay listens on the next free port up to
+   7399 and shows that one; use the port the tab shows. **Change port** picks a port of your
+   own, which the relay then always uses.
+3. To let a logger on another computer connect, tick **Let other computers on this network
+   connect**. The tab then also shows this computer's network address (such as
+   `192.168.1.42`) for the other computers to use. Anyone on your network can connect while
+   it is on; there is no password.
+
+**Set up logging software** on the tab shows the same steps, with copy buttons for the address,
+port and callsign.
+
+### N1MM Logger+
+
+1. Open the Telnet window (**Window > Telnet**).
+2. Add a new cluster with address `127.0.0.1` and port `7373` (or the port the relay shows).
+   N1MM keeps its cluster list behind the **Edit** button next to the cluster drop-down.
+3. Select the cluster and **Connect**. The relay asks `login:`; N1MM answers with your
+   callsign, or type it. Any callsign is accepted. The relay then greets you:
+
+   ```text
+   Hello KK4PWJ, this is Long Lines Relay on SHACK-PC. Spots from your Long Lines connections appear here.
+   KK4PWJ de LONGLINES 28-Oct-2026 2114Z >
+   ```
+
+4. Select **Send test spot** in the relay. A spot for `LLTEST` on 14050.0 kHz CW should show up
+   in the Telnet window and in the bandmap:
+
+   ```text
+   DX de KK4PWJ:    14050.0  LLTEST       CW Long Lines Relay test spot  2102Z
+   ```
+
+**Filters.** N1MM Logger+ applies its own spot filters and band limits (the Telnet window's
+filter settings and the bandmap's band). If a spot shows in the Telnet window but not in the
+bandmap, or not at all, check those first. The test spot is on 20 m CW.
+
+### Other software
+
+Any logger that reads a DX cluster over Telnet should work: open its DX cluster or Telnet
+settings, add a cluster with the relay's address and port, connect, and send a test spot. Each
+spot arrives as one line in the layout DXSpider uses, with the mode as the first word of the
+comment and then, depending on the destination's settings, the reference, the source and the
+spotter's comment:
+
+```text
+DX de W4DOG:     14062.0  K4ABC        CW POTA K-0039                 2114Z
+```
+
+The relay answers `bye` and `quit` by closing the connection, ignores blank lines and the
+commands loggers send on connect (such as `set/page 0` or `sh/dx`), and refuses spots entered
+in the logger ("Spots can't be sent through Long Lines Relay.").
+
+### When the DX cluster doesn't look right
+
+- **"Listening" and "No destination sends spots to this computer yet".** The relay is
+  connected to Long Lines, but nothing has arrived. Add a Local DX cluster destination for this
+  relay in Long Lines and link it to a connection. Spots arrive only as they are spotted;
+  there is no backlog.
+- **"Port 7373 is in use by another program".** Another program has the port you chose with
+  **Change port**, or, on the default port, every port from 7373 to 7399. Choose another port
+  in the relay and in your logger.
+- **"Sign in again to use the DX cluster".** This computer was signed in before the relay could
+  receive spots. Select **Sign in again** and approve it in your browser.
+- **"Couldn't reach Long Lines for spots".** The relay retries by itself. Your logger stays
+  connected meanwhile and gets spots again once the relay is back.
+- **Spots show in the relay's "Spots sent" but not in the logger.** Check that the logger is
+  connected (the tab counts programs connected), then its spot filters and band limits.
+- **A logger on another computer can't connect.** Tick **Let other computers on this network
+  connect**, use the network address the tab shows, and check that this computer's firewall
+  lets the relay accept connections on its port.
 
 ## When something doesn't look right
 
@@ -176,3 +268,10 @@ Source: the Not1MM source code ([github.com/mbridak/not1mm](https://github.com/m
 - The N1MM Logger+ timestamp's time zone, from a capture on Windows.
 - That the relay receives MacLoggerDX's default (broadcast address) packets on macOS.
 - A real packet from DXLog.net and from MacLoggerDX, kept as test fixtures.
+- That N1MM Logger+ connects to the relay's DX cluster, accepts its `login:` prompt and
+  greeting, and puts the test spot in the bandmap, from this computer and, with the network
+  setting on, from a second computer.
+- Whether N1MM Logger+ needs the mode word at the start of a spot's comment, and how it treats
+  a spot whose comment has none.
+- Where N1MM Logger+ keeps its cluster list (the **Edit** button above) and whether it answers
+  `login:` with the callsign by itself.
