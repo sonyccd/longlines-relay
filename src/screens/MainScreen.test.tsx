@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { App } from "../App";
 import { mockTauri } from "../test/tauri";
 import { renderWithTheme } from "../test/render";
@@ -20,26 +20,78 @@ describe("main screen", () => {
     vi.setSystemTime(NOW);
   });
 
-  it("shows the account and signs out", async () => {
+  it("shows the Connected chip and signs out from the account menu", async () => {
     const shell = mockTauri(signedInView());
     const { user } = renderWithTheme(<App />);
-    const account = within(await screen.findByRole("region", { name: "Long Lines account" }));
-    expect(account.getByText("Connected")).toBeVisible();
-    expect(account.getByText("Signed in as")).toBeVisible();
-    expect(account.getByText("KK4PWJ")).toBeVisible();
-    expect(account.getByText("op@example.com")).toBeVisible();
-    expect(account.getByText("Your logged contacts are posted to Long Lines as spots.")).toBeVisible();
+    const header = within(await screen.findByRole("banner"));
+    expect(header.getByRole("heading", { level: 1, name: "Long Lines Relay" })).toBeVisible();
+    expect(header.getByText("Connected")).toBeVisible();
+    const button = header.getByRole("button", { name: "Account menu, KK4PWJ" });
+    expect(button).toHaveTextContent("KKKK4PWJ"); // the avatar's initials, then the callsign
+    expect(button).toHaveAttribute("aria-haspopup", "menu");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("menu")).toBeNull();
 
-    await user.click(account.getByRole("button", { name: "Sign out" }));
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    const menu = within(screen.getByRole("menu", { name: "Account" }));
+    expect(menu.getByText("KK4PWJ")).toBeVisible();
+    expect(menu.getByText("op@example.com")).toBeVisible();
+    expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Sign out"]);
+
+    await user.click(menu.getByRole("menuitem", { name: "Sign out" }));
     expect(shell.commands()).toContain("sign_out");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("closes the account menu with Escape", async () => {
+    const shell = mockTauri(signedInView());
+    const { user } = renderWithTheme(<App />);
+    await user.click(await screen.findByRole("button", { name: "Account menu, KK4PWJ" }));
+    expect(screen.getByRole("menu", { name: "Account" })).toBeVisible();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(shell.commands()).not.toContain("sign_out");
   });
 
   it("holds the account's place until Long Lines answers", async () => {
-    mockTauri(signedInView({ account: null }));
-    renderWithTheme(<App />);
-    const account = within(await screen.findByRole("region", { name: "Long Lines account" }));
-    expect(account.getByText("Signed in as")).toBeVisible();
-    expect(account.queryByText("KK4PWJ")).toBeNull();
+    const shell = mockTauri(signedInView({ account: null }));
+    const { user } = renderWithTheme(<App />);
+    const button = await screen.findByRole("button", { name: "Account menu" });
+    expect(button).not.toHaveTextContent("KK4PWJ");
+    await user.click(button);
+    const menu = within(screen.getByRole("menu", { name: "Account" }));
+    expect(menu.queryByText("KK4PWJ")).toBeNull();
+    await user.click(menu.getByRole("menuitem", { name: "Sign out" }));
+    expect(shell.commands()).toContain("sign_out");
+  });
+
+  it("switches between the Contacts and DX cluster tabs", async () => {
+    mockTauri(signedInView());
+    const { user } = renderWithTheme(<App />);
+    const tabs = within(await screen.findByRole("tablist", { name: "Relay" }));
+    expect(tabs.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Contacts", "DX cluster"]);
+    const contactsTab = tabs.getByRole("tab", { name: "Contacts" });
+    const dxTab = tabs.getByRole("tab", { name: "DX cluster" });
+    expect(contactsTab).toHaveAttribute("aria-selected", "true");
+    expect(dxTab).toHaveAttribute("aria-selected", "false");
+    const contactsPanel = screen.getByRole("tabpanel", { name: "Contacts" });
+    expect(within(contactsPanel).getByRole("region", { name: "Logging feed" })).toBeVisible();
+    expect(within(contactsPanel).getByRole("region", { name: "Contacts seen" })).toBeVisible();
+    expect(within(contactsPanel).getByRole("region", { name: "Settings" })).toBeVisible();
+
+    await user.click(dxTab);
+    expect(dxTab).toHaveAttribute("aria-selected", "true");
+    expect(contactsTab).toHaveAttribute("aria-selected", "false");
+    const dxPanel = screen.getByRole("tabpanel", { name: "DX cluster" });
+    expect(dxPanel).toBeEmptyDOMElement();
+    expect(screen.queryByRole("region", { name: "Logging feed" })).toBeNull();
+    expect(screen.queryByRole("tabpanel", { name: "Contacts" })).toBeNull();
+    // The header stays.
+    expect(screen.getByRole("button", { name: "Account menu, KK4PWJ" })).toBeVisible();
+
+    await user.click(contactsTab);
+    expect(screen.getByRole("region", { name: "Logging feed" })).toBeVisible();
   });
 
   it("shows the feed receiving, ticking every second", async () => {
@@ -47,13 +99,27 @@ describe("main screen", () => {
     renderWithTheme(<App />);
     const feedCard = within(await screen.findByRole("region", { name: "Logging feed" }));
     expect(feedCard.getByText("Receiving")).toBeVisible();
-    expect(feedCard.getByText("Last contact received 14 seconds ago")).toBeVisible();
+    expect(feedCard.getByText("Last contact 14 seconds ago")).toBeVisible();
     expect(feedCard.getByText("Listening on UDP port 12060")).toBeVisible();
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(feedCard.getByText("Last contact received 15 seconds ago")).toBeVisible();
+    expect(feedCard.getByText("Last contact 15 seconds ago")).toBeVisible();
     expect(feedCard.queryByRole("alert")).toBeNull();
+  });
+
+  it("links to the logging software setup while nothing needs attention", async () => {
+    const shell = mockTauri(signedInView());
+    const { user } = renderWithTheme(<App />);
+    const feedCard = within(await screen.findByRole("region", { name: "Logging feed" }));
+    expect(feedCard.getByText("Test mode shows contacts here without sending them to Long Lines.")).toBeVisible();
+    expect(feedCard.getByRole("checkbox", { name: "Test mode" })).toHaveAccessibleDescription(
+      "Test mode shows contacts here without sending them to Long Lines.",
+    );
+    await user.click(feedCard.getByRole("button", { name: "Set up logging software" }));
+    expect(shell.commands()).toContain("open_setup_docs");
+    // The signed-in header no longer carries the link.
+    expect(within(screen.getByRole("banner")).queryByRole("button", { name: "Set up logging software" })).toBeNull();
   });
 
   it("waits for logging software", async () => {
@@ -66,7 +132,9 @@ describe("main screen", () => {
     const { user } = renderWithTheme(<App />);
     const feedCard = within(await screen.findByRole("region", { name: "Logging feed" }));
     expect(feedCard.getByText("Waiting for logging software")).toBeVisible();
-    expect(feedCard.getByText("Nothing received yet")).toBeVisible();
+    expect(feedCard.getByText("Nothing received yet · Listening on UDP port 12060")).toBeVisible();
+    expect(feedCard.getByText("Test mode shows contacts here without sending them to Long Lines.")).toBeVisible();
+    expect(feedCard.getAllByRole("button", { name: "Set up logging software" })).toHaveLength(1);
     expect(
       feedCard.getByText(
         "Turn on contact broadcasts in your logging software and send them to this computer on port 12060.",
@@ -86,19 +154,18 @@ describe("main screen", () => {
     });
     const { user } = renderWithTheme(<App />);
     const feedCard = within(await screen.findByRole("region", { name: "Logging feed" }));
-    const box = feedCard.getByRole("checkbox", { name: /Test mode/ });
+    const box = feedCard.getByRole("checkbox", { name: "Test mode" });
     expect(box).not.toBeChecked();
-    expect(
-      feedCard.getByText(
-        "Turn on test mode to make sure everything is working. Contacts show here and aren't sent to Long Lines.",
-      ),
-    ).toBeVisible();
+    expect(feedCard.getByText("Test mode shows contacts here without sending them to Long Lines.")).toBeVisible();
 
     await user.click(box);
     expect(shell.calls).toContainEqual({ command: "set_test_mode", args: { on: true } });
     expect(await feedCard.findByText("Test mode is on. Contacts aren't being sent to Long Lines.")).toBeVisible();
-    expect(feedCard.getByRole("checkbox", { name: /Test mode/ })).toBeChecked();
-    expect(feedCard.getAllByText("Test mode").length).toBeGreaterThanOrEqual(2); // chip and label
+    expect(feedCard.getByRole("checkbox", { name: "Test mode" })).toBeChecked();
+    expect(feedCard.getAllByText("Test mode")).toHaveLength(2); // chip and label
+    // The alert takes the help line's place.
+    expect(feedCard.queryByText("Test mode shows contacts here without sending them to Long Lines.")).toBeNull();
+    expect(feedCard.queryByRole("button", { name: "Set up logging software" })).toBeNull();
     expect(
       within(card("Contacts seen")).getByText(
         "Everything the relay receives, newest first. In test mode it shows what would have happened.",
@@ -118,6 +185,7 @@ describe("main screen", () => {
     expect(alert).toHaveTextContent(
       "This account is KK4PWJ, so contacts logged as K4XYZ are ignored. Change the callsign in your logging software, or sign in with the account for K4XYZ.",
     );
+    expect(feedCard.queryByText("Test mode shows contacts here without sending them to Long Lines.")).toBeNull();
   });
 
   it("says the port is in use and changes it", async () => {

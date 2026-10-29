@@ -1,7 +1,6 @@
 import Box from "@mui/material/Box";
 import LinearProgress from "@mui/material/LinearProgress";
 import { AppHeader } from "./components/AppHeader";
-import { relay } from "./lib/relay";
 import type { ShellView } from "./lib/types";
 import { useRelay } from "./lib/useRelay";
 import { MainScreen } from "./screens/MainScreen";
@@ -26,7 +25,7 @@ export function App() {
 
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <AppHeader onSetUp={() => run(relay.openSetupDocs)} />
+      <AppHeader signedIn={view?.signed_in ?? false} account={view?.account ?? null} run={run} />
       {view === null ? (
         <LinearProgress aria-label="Loading" />
       ) : view.signed_in ? (

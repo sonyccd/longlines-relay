@@ -17,6 +17,7 @@ export const copy = {
       { title: "Set up your logging software", text: `Point its contact broadcast at this computer, port ${port}.` },
       { title: "Log contacts as usual", text: "Each contact shows up here and on Long Lines a moment later." },
     ],
+    seeHow: "See how",
     signIn: "Sign in with Long Lines",
     noAccount: "No account?",
     createAccount: "Create one on Long Lines",
@@ -55,17 +56,25 @@ export const copy = {
     enterTheCode: "and enter the code.",
   },
 
-  account: {
-    heading: "Long Lines account",
+  // The signed-in header: the Connected chip and the account menu (the RelayTab* mockups).
+  header: {
     connected: "Connected",
-    signedInAs: "Signed in as",
+    accountMenu: (callsign: string) => `Account menu, ${callsign}`,
+    // Invented: the mockups always know the callsign; before `GET /me` answers the button has none.
+    accountMenuLoading: "Account menu",
+    menu: "Account",
     signOut: "Sign out",
-    privacy: "Your logged contacts are posted to Long Lines as spots.",
+  },
+
+  tabs: {
+    label: "Relay",
+    contacts: "Contacts",
+    dxCluster: "DX cluster",
   },
 
   feed: {
     heading: "Logging feed",
-    lastContact: (ago: string) => `Last contact received ${ago}`,
+    lastContact: (ago: string) => `Last contact ${ago}`,
     nothingYet: "Nothing received yet",
     listening: (port: number) => `Listening on UDP port ${port}`,
     portInUse: (port: number) => `Port ${port} is in use by another program`,
@@ -78,8 +87,7 @@ export const copy = {
       `This account is ${account}, so contacts logged as ${mycall} are ignored. Change the callsign in your logging software, or sign in with the account for ${mycall}.`,
     testModeOn: "Test mode is on. Contacts aren't being sent to Long Lines.",
     testMode: "Test mode",
-    testModeHelp:
-      "Turn on test mode to make sure everything is working. Contacts show here and aren't sent to Long Lines.",
+    testModeHelp: "Test mode shows contacts here without sending them to Long Lines.",
   },
 
   contacts: {
@@ -89,7 +97,8 @@ export const copy = {
     empty: "Contacts you log will show up here.",
   },
 
-  // Invented: the brief lists the settings (UDP port, "Start when I log in") but no screen.
+  // Invented: the brief lists the settings (UDP port, "Start when I log in") but no screen. The
+  // tab mockups draw none either; the card stays at the foot of the Contacts tab.
   settings: {
     heading: "Settings",
     port: "UDP port",

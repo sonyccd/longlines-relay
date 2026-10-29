@@ -22,7 +22,7 @@ describe("signed out", () => {
     const steps = screen.getAllByRole("listitem");
     expect(steps.map((s) => s.textContent)).toEqual([
       "1Sign in with Long LinesYour browser opens so you can approve this computer. You don't type a password here.",
-      "2Set up your logging softwarePoint its contact broadcast at this computer, port 12061.",
+      "2Set up your logging softwarePoint its contact broadcast at this computer, port 12061. See how",
       "3Log contacts as usualEach contact shows up here and on Long Lines a moment later.",
     ]);
 
@@ -33,7 +33,7 @@ describe("signed out", () => {
     expect(shell.commands()).toContain("open_sign_up");
     expect(screen.getByText(/No account\?/)).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Set up logging software" }));
+    await user.click(screen.getByRole("button", { name: "See how" }));
     expect(shell.commands()).toContain("open_setup_docs");
   });
 
