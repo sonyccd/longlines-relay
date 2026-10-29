@@ -236,7 +236,10 @@ those files on main is only a placeholder for local builds; `cargo test` still c
 agree.
 
 Tags are `vX.Y.Z`, with no suffix (Windows installers refuse one), and each one higher than the
-last release, since the updater only offers a newer version.
+last release, since the updater only offers a newer version. The tagged commit must be on
+`main`, or the workflow stops before it builds anything. The four build jobs run in the
+`release` environment, so if it has a required reviewer, they wait for approval on the run's
+page.
 
 **From GitHub.** On the Releases page, **Draft a new release**, type a new tag such as `v0.1.3`
 targeting `main`, and **Publish release**. Publishing creates the tag, which starts the Release
@@ -270,12 +273,16 @@ Updates are signed with the relay's own key pair, separate from any OS code sign
   ~/.tauri/longlines-relay.key`, with an empty password. The private key is
   `~/.tauri/longlines-relay.key`; the public key is `~/.tauri/longlines-relay.key.pub`, and its
   contents are `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`.
-- The Release workflow reads the private key from the repository secret
-  `TAURI_SIGNING_PRIVATE_KEY`. Set it once:
+- The Release workflow reads the private key from the secret `TAURI_SIGNING_PRIVATE_KEY` of the
+  `release` environment (Settings > Environments), and only its build step gets it. The
+  environment allows only `v*` tags (Deployment branches and tags) and has a required reviewer.
+  Set the secret once:
 
   ```sh
-  gh secret set TAURI_SIGNING_PRIVATE_KEY --repo sonyccd/longlines-relay < ~/.tauri/longlines-relay.key
+  gh secret set TAURI_SIGNING_PRIVATE_KEY --env release --repo sonyccd/longlines-relay < ~/.tauri/longlines-relay.key
   ```
+
+  A repository secret of the same name would reach any workflow on any branch; don't keep one.
 
   The key has no password, so leave `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` unset. If you ever
   generate a key with a password, set that secret too.

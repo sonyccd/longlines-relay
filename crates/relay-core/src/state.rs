@@ -164,7 +164,7 @@ pub struct FeedView {
     /// The configured or bound port.
     pub port: u16,
     pub last_packet_at: Option<DateTime<Utc>>,
-    /// Datagrams from other computers, dropped unread.
+    /// Datagrams from anything but loopback, dropped unread.
     pub dropped_packets: u64,
     /// The station callsign of the latest contact that failed the callsign check.
     pub mismatch: Option<String>,

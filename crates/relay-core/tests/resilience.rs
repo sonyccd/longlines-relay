@@ -62,7 +62,7 @@ fn config(dir: &Path, base_url: &str, tokens: Arc<dyn TokenStore>) -> EngineConf
         ClientConfig::new(base_url, "0.1.0-test"),
         tokens,
     );
-    config.source_filter = Arc::new(SourceFilter::with_addresses([]));
+    config.source_filter = Arc::new(SourceFilter::new());
     config.backoff = Backoff {
         base: Duration::from_millis(100),
         max: Duration::from_millis(400),
@@ -295,5 +295,70 @@ async fn the_spots_stream_never_opens_with_a_token_that_wont_delete() {
         1,
         "reopened with a signed-out token"
     );
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_account_answer_that_arrives_after_sign_out_is_ignored() {
+    let server = FakeLongLines::start().await;
+    server.set_me_delay(Duration::from_millis(600));
+    let dir = tempfile::tempdir().unwrap();
+    let engine = start_engine(&dir.path().join("q.sqlite3"), &server.uri(), signed_in()).await;
+    // A contact waits in the queue while the sender's `GET /me` is out.
+    send(port(&engine), contact("W1AW").info_xml().as_bytes()).unwrap();
+    wait_until(&engine, "a row", |s| s.stream.len() == 1).await;
+    while server.state.lock().unwrap().me_calls == 0 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(engine.snapshot().account, None);
+
+    engine.sign_out().unwrap();
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let snap = engine.snapshot();
+    assert_eq!(
+        snap.account, None,
+        "the stale answer brought the account back"
+    );
+    assert_eq!(snap.upstream, UpstreamStatus::SignedOut);
+    assert!(server.requests().is_empty(), "sent with a signed-out token");
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_sign_out_marker_that_couldnt_be_written_is_written_later() {
+    let server = FakeLongLines::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = FlakyStore::with_token();
+    store.fail_delete.store(true, Ordering::SeqCst);
+    let engine = Engine::start(config(dir.path(), &server.uri(), store.clone()))
+        .await
+        .unwrap();
+    wait_signed_in(&engine).await;
+    // A directory in the marker's place makes writing it fail.
+    let marker = dir.path().join("sign-out-pending");
+    std::fs::create_dir(&marker).unwrap();
+
+    assert!(engine.sign_out().is_err());
+    assert!(engine.snapshot().sign_out_incomplete);
+    assert!(marker.is_dir());
+    std::fs::remove_dir(&marker).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !marker.is_file() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the marker was never written"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    engine.shutdown().await;
+
+    // So the next launch still knows the stored token was signed out.
+    let engine = Engine::start(config(dir.path(), &server.uri(), store.clone()))
+        .await
+        .unwrap();
+    assert!(engine.snapshot().sign_out_incomplete);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(server.requests().is_empty());
+    assert_eq!(engine.snapshot().account, None);
     engine.shutdown().await;
 }

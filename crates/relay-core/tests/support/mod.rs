@@ -60,6 +60,8 @@ pub struct ServerState {
     pub script: VecDeque<Scripted>,
     pub requests: Vec<ContactsRequest>,
     pub me_calls: usize,
+    /// How long `GET /me` takes to answer.
+    pub me_delay: Duration,
     /// `GET /me`'s v2 `spots_url`; left out while `None`.
     pub spots_url: Option<String>,
     /// `GET /me`'s v2 `scopes`; left out while `None`.
@@ -94,7 +96,9 @@ impl Respond for Handler {
                 if let Some(scopes) = &state.scopes {
                     me["scopes"] = json!(scopes);
                 }
-                ResponseTemplate::new(200).set_body_json(me)
+                ResponseTemplate::new(200)
+                    .set_body_json(me)
+                    .set_delay(state.me_delay)
             }
             ("POST", "/contacts") => {
                 let body: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
@@ -253,6 +257,10 @@ impl FakeLongLines {
 
     pub fn revoke(&self) {
         self.state.lock().unwrap().revoked = true;
+    }
+
+    pub fn set_me_delay(&self, delay: Duration) {
+        self.state.lock().unwrap().me_delay = delay;
     }
 
     /// Makes `GET /me` a v2 answer pointing at `stream` with `scopes`.
@@ -494,7 +502,7 @@ pub async fn start_engine_with(
         ClientConfig::new(base_url, "0.1.0-test"),
         tokens,
     );
-    config.source_filter = Arc::new(SourceFilter::with_addresses([]));
+    config.source_filter = Arc::new(SourceFilter::new());
     config.backoff = Backoff {
         base: Duration::from_millis(100),
         max: Duration::from_millis(400),

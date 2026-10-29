@@ -1,5 +1,5 @@
-//! The UDP listener: binds `0.0.0.0:<port>` without address reuse, drops datagrams from other
-//! computers, and hands the rest to the engine over a lossless channel.
+//! The UDP listener: binds `0.0.0.0:<port>` without address reuse, drops datagrams that don't come
+//! from loopback, and hands the rest to the engine over a lossless channel.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket as StdUdpSocket};
@@ -163,7 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn receives_from_loopback() {
-        let (l, mut rx) = listener(0, SourceFilter::with_addresses([]));
+        let (l, mut rx) = listener(0, SourceFilter::new());
         let ListenerStatus::Listening { port } = l.start() else {
             panic!("not listening")
         };
@@ -183,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_while_listening_keeps_the_socket() {
-        let (l, mut rx) = listener(0, SourceFilter::with_addresses([]));
+        let (l, mut rx) = listener(0, SourceFilter::new());
         let first = l.start();
         assert!(matches!(first, ListenerStatus::Listening { .. }));
         for _ in 0..20 {
@@ -206,7 +206,7 @@ mod tests {
         let port = probe.local_addr().unwrap().port();
         drop(probe);
         for _ in 0..20 {
-            let (l, _rx) = listener(port, SourceFilter::with_addresses([]));
+            let (l, _rx) = listener(port, SourceFilter::new());
             assert_eq!(l.start(), ListenerStatus::Listening { port });
             l.shutdown().await;
             assert_eq!(l.status(), ListenerStatus::Stopped { port });
@@ -217,7 +217,7 @@ mod tests {
     async fn a_held_port_is_in_use() {
         let holder = StdUdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
         let port = holder.local_addr().unwrap().port();
-        let (l, _rx) = listener(port, SourceFilter::with_addresses([]));
+        let (l, _rx) = listener(port, SourceFilter::new());
         assert_eq!(l.start(), ListenerStatus::PortInUse { port });
         assert_eq!(l.status(), ListenerStatus::PortInUse { port });
     }

@@ -538,8 +538,7 @@ async fn a_held_port_shows_port_in_use_until_changed() {
         relay_core::upstream::client::ClientConfig::new(server.uri(), "0.1.0-test"),
         signed_in(),
     );
-    config.source_filter =
-        std::sync::Arc::new(relay_core::source_filter::SourceFilter::with_addresses([]));
+    config.source_filter = std::sync::Arc::new(relay_core::source_filter::SourceFilter::new());
     let engine = relay_core::engine::Engine::start(config).await.unwrap();
     let feed = engine.snapshot().feed;
     assert_eq!(feed.status, FeedStatus::PortInUse);

@@ -9,6 +9,10 @@
 # releases/latest/download/latest.json, and a draft is never "latest". See README "Releasing".
 #
 # Actions are pinned to commit SHAs; the comment names the release each SHA is.
+#
+# The updater signing key reaches only the tauri-action step, through the `release` environment
+# (README "Updater key"). The window is built in a step before it, so the npm build tools never
+# run with the key; Cargo still does, with the lockfile enforced.
 
 name: Release
 
@@ -16,8 +20,8 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
+# Each job asks for what it needs.
+permissions: {}
 
 concurrency:
   group: release-${{ github.ref }}
@@ -30,15 +34,28 @@ jobs:
   draft:
     name: Draft release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       release_id: ${{ steps.release.outputs.id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # All of history, for the check that the tag is on main.
+          fetch-depth: 0
+          persist-credentials: false
       # Windows installers take only X.Y.Z, with no pre-release or build suffix.
       - name: Check the tag is a version
         run: |
           if ! [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Tag ${GITHUB_REF_NAME} isn't vX.Y.Z."
+            exit 1
+          fi
+      # Only reviewed code is signed: the tagged commit must be on main.
+      - name: Check the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit that isn't on main."
             exit 1
           fi
       # One job finds the release (made on GitHub) or makes the draft (tag pushed from git), so
@@ -62,6 +79,10 @@ jobs:
   build:
     name: Build (${{ matrix.name }})
     needs: draft
+    permissions:
+      contents: write
+    # Holds the signing key; its protection rules decide which refs may use it.
+    environment: release
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +102,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install the Tauri system libraries
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -97,7 +120,8 @@ jobs:
       - run: npm ci
       # Every file that carries the app's version gets the tag's (crates/relay-core/tests/
       # versions.rs lists them). tauri.conf.json names the bundles and is what the updater
-      # compares; Cargo.toml is what the app reports; Cargo.lock follows on the build.
+      # compares; Cargo.toml is what the app reports; Cargo.lock gets the same version for the
+      # two workspace crates, so the build can insist on the lockfile.
       - name: Stamp the version from the tag
         shell: bash
         run: |
@@ -114,8 +138,19 @@ jobs:
           const workspace = /(\[workspace\.package\]\r?\nversion = )"[^"]*"/;
           if (!workspace.test(cargo)) throw new Error("Cargo.toml has no [workspace.package] version line");
           fs.writeFileSync("Cargo.toml", cargo.replace(workspace, `$1"${version}"`));
+          let lock = fs.readFileSync("Cargo.lock", "utf8");
+          for (const crate of ["relay-core", "longlines-relay"]) {
+            const entry = new RegExp(`(\\[\\[package\\]\\]\\r?\\nname = "${crate}"\\r?\\nversion = )"[^"]*"`);
+            if (!entry.test(lock)) throw new Error(`Cargo.lock has no ${crate} package`);
+            lock = lock.replace(entry, `$1"${version}"`);
+          }
+          fs.writeFileSync("Cargo.lock", lock);
           console.log(`Stamped version ${version}`);
           EOF
+      # Before the signing step, so Vite, tsc and their plugins never run with the key.
+      # tauri.release.conf.json drops beforeBuildCommand so tauri build doesn't run it again.
+      - name: Build the window
+        run: npm run build
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -132,12 +167,15 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           retryAttempts: 1
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json -- --locked
 
   check:
     name: Check latest.json
     needs: [draft, build]
     runs-on: ubuntu-latest
+    permissions:
+      # Only accounts that can push may read a draft release.
+      contents: write
     steps:
       # The four builds each add their platform to latest.json. Fail here, before anyone
       # publishes a draft, if one is missing or points at a file that isn't in this release.

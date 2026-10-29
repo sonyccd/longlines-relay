@@ -121,7 +121,7 @@ impl EngineConfig {
             queue_path,
             client,
             token_store,
-            source_filter: Arc::new(SourceFilter::system()),
+            source_filter: Arc::new(SourceFilter::new()),
             backoff: Backoff::DEFAULT,
             max_batch: MAX_BATCH,
             contacts_per_minute: CONTACTS_PER_MINUTE,
@@ -722,6 +722,8 @@ impl Shared {
         self.tokens.save(&token)?;
         // The new token took the old one's place in the credential store.
         self.set_sign_out_incomplete(false);
+        // Any account still held is the previous token's; this one's comes from its `GET /me`.
+        self.state.set_account(None);
         *self.me_lock() = None;
         *self.granted_lock() = granted;
         self.scope_refused.store(false, Ordering::SeqCst);
@@ -732,7 +734,10 @@ impl Shared {
         match self.client.me(&token).await {
             Ok(me) => {
                 let account = me.account();
-                self.account_ok(me);
+                // Signed out (or in again) while `GET /me` was out: the answer is stale.
+                if self.token_current(&token) {
+                    self.account_ok(me);
+                }
                 self.wake.notify_one();
                 Ok(account)
             }
@@ -777,8 +782,27 @@ impl Shared {
                 tracing::info!("deleted the signed-out token");
                 self.set_sign_out_incomplete(false);
             }
-            Err(e) => tracing::debug!(error = %e, "still couldn't delete the token"),
+            Err(e) => {
+                tracing::debug!(error = %e, "still couldn't delete the token");
+                // Until the delete works, the marker is all that keeps the next launch from
+                // using the token, so a marker that couldn't be written is tried again too.
+                if !self.sign_out_marker.exists() {
+                    match std::fs::write(&self.sign_out_marker, b"") {
+                        Ok(()) => tracing::info!("wrote the sign-out marker"),
+                        Err(e) => {
+                            tracing::debug!(error = %e, "still couldn't write the sign-out marker");
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /// True while `token` is the one signed in: a sign-out or a new sign-in since it was loaded
+    /// means an answer to a request made with it no longer applies.
+    fn token_current(&self, token: &Token) -> bool {
+        !self.state.sign_out_incomplete()
+            && matches!(self.tokens.load(), Ok(Some(current)) if current == *token)
     }
 
     fn mark_account_stale(&self) {
@@ -1463,7 +1487,13 @@ async fn sender(shared: Arc<Shared>) {
         };
 
         if shared.account_due() {
-            match shared.client.me(&token).await {
+            let answer = shared.client.me(&token).await;
+            if !shared.token_current(&token) {
+                // Signed out (or in again) while `GET /me` was out: the answer is stale, and
+                // nothing more is sent with this token.
+                continue;
+            }
+            match answer {
                 Ok(me) => {
                     account_failures = 0;
                     shared.account_ok(me);

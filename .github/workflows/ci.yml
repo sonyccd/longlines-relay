@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10
         with:
           toolchain: stable
@@ -34,17 +36,19 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy -p relay-core --all-targets -- -D warnings
+        run: cargo clippy -p relay-core --all-targets --locked -- -D warnings
       - name: Clippy with the OS credential store
-        run: cargo clippy -p relay-core --all-targets --features keyring -- -D warnings
+        run: cargo clippy -p relay-core --all-targets --features keyring --locked -- -D warnings
       - name: Test
-        run: cargo test -p relay-core
+        run: cargo test -p relay-core --locked
 
   web:
     name: Window
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -78,6 +82,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install the Tauri system libraries
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -100,13 +106,13 @@ jobs:
       # off; the release workflow builds them.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         with:
-          args: ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
+          args: ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json -- --locked
           uploadWorkflowArtifacts: true
       # Clippy and the shell's own unit tests (the update path), here because only this job
       # has the WebKitGTK libraries the shell links against.
       - name: Clippy the shell
         if: matrix.platform == 'ubuntu-22.04'
-        run: cargo clippy -p longlines-relay --all-targets -- -D warnings
+        run: cargo clippy -p longlines-relay --all-targets --locked -- -D warnings
       - name: Test the shell
         if: matrix.platform == 'ubuntu-22.04'
-        run: cargo test -p longlines-relay
+        run: cargo test -p longlines-relay --locked
