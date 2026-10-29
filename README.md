@@ -199,32 +199,38 @@ be checked afterwards.
 
 ## Releasing
 
-1. Bump the version in all four places, in one commit:
-   - `Cargo.toml` (`[workspace.package] version`), then run `cargo check` so `Cargo.lock`
-     follows;
-   - `src-tauri/tauri.conf.json` (`version`), which names the bundles and is what the updater
-     compares;
-   - `package.json` and `package-lock.json`: `npm version 0.1.1 --no-git-tag-version`.
+The tag is the version. Merge whatever should ship, then name it: the Release workflow writes
+the tag's version into every file that carries one (`Cargo.toml`, `src-tauri/tauri.conf.json`,
+`package.json`, `package-lock.json`) on each build machine and commits nothing. The version in
+those files on main is only a placeholder for local builds; `cargo test` still checks that they
+agree.
 
-   `cargo test` fails if they disagree.
-2. Merge to main.
-3. Tag the merge and push the tag:
+Tags are `vX.Y.Z`, with no suffix (Windows installers refuse one), and each one higher than the
+last release, since the updater only offers a newer version.
 
-   ```sh
-   git tag v0.1.1
-   git push origin v0.1.1
-   ```
+**From GitHub.** On the Releases page, **Draft a new release**, type a new tag such as `v0.1.3`
+targeting `main`, and **Publish release**. Publishing creates the tag, which starts the Release
+workflow; it builds Windows, macOS (Apple silicon and Intel) and Linux and uploads the bundles,
+their updater signatures and `latest.json` to that release, then checks that `latest.json` has a
+signed entry for every platform. The release is public while the builds run (about 7 minutes);
+a relay that checks then finds no `latest.json` yet and tries again the next day. If a build
+fails, re-run the failed jobs; they upload to the same release. Saving the release as a draft
+on GitHub creates no tag, so nothing builds until it is published.
 
-4. The Release workflow checks that the tag matches the version, creates a draft release, builds
-   Windows, macOS (Apple silicon and Intel) and Linux, uploads the bundles, their updater
-   signatures and `latest.json`, then checks that `latest.json` has a signed entry for every
-   platform. If a build fails, re-run the failed jobs; they upload to the same draft.
-5. Download a build or two from the draft and try them.
-6. Publish the draft (`gh release edit v0.1.1 --draft=false`, or **Publish release** on
-   GitHub). Installed relays read
-   `https://github.com/sonyccd/longlines-relay/releases/latest/download/latest.json`, which
-   only a published release answers, so nothing reaches users before this step. They see the
-   update within a day, or at their next launch.
+**From git, to try the builds first.**
+
+```sh
+git tag v0.1.3 origin/main
+git push origin v0.1.3
+```
+
+The workflow makes a draft release named "Long Lines Relay v0.1.3" and uploads to it. Download a
+build or two from the draft and try them, then publish it (`gh release edit v0.1.3
+--draft=false`, or **Publish release** on GitHub).
+
+Either way, installed relays read
+`https://github.com/sonyccd/longlines-relay/releases/latest/download/latest.json`, which only a
+published release answers. They see the update within a day, or at their next launch.
 
 ## Updater key
 
@@ -262,7 +268,7 @@ after changing anything in the updater, the bundle settings or the Release workf
 2. Install v0.1.0 on each of: Windows (`-setup.exe`), a Mac with Apple silicon and an Intel Mac
    (`.dmg`), Linux from the AppImage, and Linux from the `.deb`. Sign in on each and log a
    contact with `fake-logger` so there is a token and a queue to keep.
-3. Bump to 0.1.1, then release and publish v0.1.1.
+3. Release and publish v0.1.1.
 4. On each computer, quit the relay and open it again (it checks 10 seconds after launch, then
    daily). Expect:
    - **Windows, macOS, AppImage:** a banner "Version 0.1.1 of the relay is available." Select
