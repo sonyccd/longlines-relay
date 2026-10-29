@@ -142,7 +142,7 @@ async fn engine(dir: &tempfile::TempDir, base_url: &str, tokens: Arc<MemoryToken
         ClientConfig::new(base_url, "0.1.0-test"),
         tokens,
     );
-    config.source_filter = Arc::new(SourceFilter::with_addresses([]));
+    config.source_filter = Arc::new(SourceFilter::new());
     config.idle_tick = Duration::from_millis(50);
     config.pairing_second = SECOND;
     Engine::start(config).await.expect("engine starts")

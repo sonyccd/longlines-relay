@@ -25,7 +25,9 @@ anything.
 | Not1MM | New contacts only, with two settings changed | Sends the operator, not the station callsign, and uses port 12061 by default. Edits and deletes are not sent. |
 
 Other loggers that send N1MM-format `contactinfo` packets should work. The relay does not read
-WSJT-X's own UDP format, ADIF files or log files, and it ignores packets from other computers.
+WSJT-X's own UDP format, ADIF files or log files. It reads only packets sent to `127.0.0.1`, so it
+ignores packets from other computers, and packets sent to this computer's network or broadcast
+address.
 
 The relay can also go the other way: its [DX cluster](#dx-cluster) shows the spots that match
 your Long Lines connections in your logger's bandmap.
@@ -58,8 +60,8 @@ MacLoggerDX sends N1MM-format contact packets from version 6.58 (November 2025).
 if you have an older version.
 
 1. Turn on the N1MM-format contact broadcast in MacLoggerDX. Its help describes where.
-2. MacLoggerDX sends to your network's broadcast address by default. To send to this computer
-   only, quit MacLoggerDX, run this in Terminal, then start MacLoggerDX again:
+2. MacLoggerDX sends to your network's broadcast address by default, which the relay ignores.
+   To send to the relay, quit MacLoggerDX, run this in Terminal, then start MacLoggerDX again:
 
    ```sh
    defaults write com.dogparksoftware.MacLoggerDX broadcast_ip_address 127.0.0.1
@@ -241,8 +243,8 @@ Capture wanted.
   `defaults write com.dogparksoftware.MacLoggerDX broadcast_ip_address 127.0.0.1` sends them to
   this computer instead. The port is the `n1mm_radio_port` setting.
 - The field list is not documented.
-- Not yet confirmed: whether the relay, which listens on all of this computer's addresses and
-  keeps only packets from this computer, receives MacLoggerDX's default broadcasts on macOS.
+- The relay ignores the default broadcasts: it reads only packets sent to `127.0.0.1`, because a
+  packet's sender address can be forged by another computer on the network unless it is loopback.
 
 ### Not1MM
 
@@ -266,7 +268,6 @@ Source: the Not1MM source code ([github.com/mbridak/not1mm](https://github.com/m
 ### Still to confirm by hand
 
 - The N1MM Logger+ timestamp's time zone, from a capture on Windows.
-- That the relay receives MacLoggerDX's default (broadcast address) packets on macOS.
 - A real packet from DXLog.net and from MacLoggerDX, kept as test fixtures.
 - That N1MM Logger+ connects to the relay's DX cluster, accepts its `login:` prompt and
   greeting, and puts the test spot in the bandmap, from this computer and, with the network

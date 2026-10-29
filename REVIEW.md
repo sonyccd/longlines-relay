@@ -12,7 +12,8 @@ The existing suite (`cargo test -p relay-core`) passes.
 
 **Status:** #1 to #7 (every High and Medium) are fixed, with tests in
 `crates/relay-core/tests/resilience.rs`, `upstream/queue.rs`, `listeners/udp.rs` and the page's
-screen tests. Each section below ends with what changed. #8 to #16 are open. File and line
+screen tests. Each section below ends with what changed. #11 is fixed and #15 partly fixed by
+the security review (`SECURITY_REVIEW.md` L1 and M1); #8 to #10, #12 to #14 and #16 are open. File and line
 references are as of `1ca8d4a`; the fixes were rebased onto the Phase 2 work (tabs, spots stream,
 DX cluster) that landed after it.
 
@@ -46,11 +47,11 @@ task → `POST /contacts` → row status → bus → shell bridge → `state` ev
 | 8 | Low | `App.tsx:16` | Command errors are only `console.error`ed (`set_port`, `set_autostart`) |
 | 9 | Low | `engine.rs:269` | Cancel during sign-in can still store the token; a concurrent start can leak a poll task |
 | 10 | Low | `client.rs:288` | The approved token is never shape-checked; `Token::is_well_formed` is dead |
-| 11 | Low | `udp.rs:56`, `source_filter.rs:62` | The local-only rule trusts the source IP; a LAN host can spoof it |
+| 11 | Low | `udp.rs:56`, `source_filter.rs:62` | The local-only rule trusts the source IP; a LAN host can spoof it. **Fixed** |
 | 12 | Low | `udp.rs:110` | The receive loop spins with no backoff on a persistent error |
 | 13 | Low | `settings.rs:67` | An older build saving a newer settings file drops its unknown fields |
 | 14 | Low | `settings.rs:75` | Settings are not fsynced before the rename |
-| 15 | Low | `release.yml:91` | The updater signing key is in the environment while npm dependency code runs |
+| 15 | Low | `release.yml:91` | The updater signing key is in the environment while npm dependency code runs. **Partly fixed** |
 | 16 | Low | several | Dead code |
 
 ---
@@ -193,6 +194,9 @@ note ("only listens for packets from this computer") overstates this.
 `0.0.0.0` an opt-in setting for broadcast setups. Loopback can't be spoofed from off-host. At
 minimum, document the limit.
 
+**Fixed:** the filter accepts loopback sources only (`SECURITY_REVIEW.md` L1). The socket still
+binds `0.0.0.0`, so a port another program holds is still reported as in use.
+
 ### 12. The receive loop spins on a persistent error (Low)
 
 - `udp.rs:110-118`: `Err(e) => { debug!(..); continue; }`
@@ -303,6 +307,9 @@ This is the standard Tauri setup, but it's the most valuable secret in the proje
 **Fix:** run `npm ci --ignore-scripts` and `npm run build` in earlier steps without the key.
 Then pass `--config '{"build":{"beforeBuildCommand":""}}'` so the signing step only compiles
 Rust and signs.
+
+**Partly fixed:** `npm run build` runs in an earlier step, and `tauri.release.conf.json` drops
+`beforeBuildCommand`. Cargo still runs with the key (`SECURITY_REVIEW.md` M1).
 
 ## Dead code (16, Low)
 

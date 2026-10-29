@@ -98,7 +98,6 @@ async fn contacts_reach_a_real_server() {
         assert!(Instant::now() < deadline, "GET /me never answered");
         tokio::time::sleep(Duration::from_millis(50)).await;
     };
-    println!("account: {} <{}>", account.callsign, account.email);
     let mycall = format!("{}/P", account.callsign);
     let port = port(&engine);
     let now = Utc::now() - TimeDelta::minutes(1);
