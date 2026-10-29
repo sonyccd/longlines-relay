@@ -6,7 +6,8 @@
 //! request at a time, and turns each answer into the row's final status.
 //!
 //! A third task holds the spots stream ([`crate::downstream::stream`]) open while the DX cluster
-//! switch is on, and hands each spot on to the DX cluster.
+//! switch is on, and hands each spot to the local DX cluster ([`crate::cluster`]), which serves
+//! it as one line to every logged-in program.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -21,13 +22,16 @@ use tokio::task::JoinHandle;
 use crate::bands::band_for_hz;
 use crate::bus::{AuthEvent, Bus, Event, SignOutReason};
 use crate::callsign::same_station;
+use crate::cluster::line::format_spot;
+use crate::cluster::server::{ClusterHub, ClusterServer};
 use crate::downstream::stream::{self, StreamClient, StreamConfig, StreamHost, Target};
-use crate::downstream::{Hello, Spot};
+use crate::downstream::{Hello, Spot, NO_SPOTTER};
 use crate::external_id::{external_id, HashFields};
 use crate::freshness::{classify, Freshness};
 use crate::listeners::udp::UdpListener;
 use crate::listeners::{Datagram, Listener, ListenerStatus};
 use crate::n1mm::{self, parse_timestamp, ContactKind, LoggedContact, Packet};
+use crate::settings::DEFAULT_CLUSTER_PORT;
 use crate::source_filter::SourceFilter;
 use crate::state::{
     Account, ClusterUpstream, ClusterView, RelayState, SentRow, Snapshot, StreamRow, UpstreamStatus,
@@ -63,6 +67,11 @@ const MAX_APP_LEN: usize = 64;
 const DATAGRAM_BACKLOG: usize = 1024;
 /// A spot id served once is not served again for this long (contract 9.4).
 pub const SPOT_REPEAT_WINDOW: Duration = Duration::from_secs(600);
+/// The test spot (contract 11.4).
+pub const TEST_SPOT_CALLSIGN: &str = "LLTEST";
+pub const TEST_SPOT_FREQUENCY_KHZ: f64 = 14050.0;
+pub const TEST_SPOT_MODE: &str = "CW";
+pub const TEST_SPOT_COMMENT: &str = "CW Long Lines Relay test spot";
 
 /// How to build an engine. [`EngineConfig::new`] fills in the contract's defaults.
 #[derive(Debug)]
@@ -82,6 +91,13 @@ pub struct EngineConfig {
     pub pairing_second: Duration,
     /// The DX cluster switch at launch (off by default).
     pub cluster_enabled: bool,
+    /// The DX cluster's port; only the default falls through to the next ports. 0 binds an
+    /// ephemeral port (tests).
+    pub cluster_port: u16,
+    /// "Let other computers on this network connect".
+    pub cluster_lan: bool,
+    /// The greeting's device name until `GET /me` gives the paired one.
+    pub device_name: String,
     /// The spots stream's silence limit (contract 9.5). The stream's backoff is `backoff`.
     pub keepalive_timeout: Duration,
     /// How long a stream stays open after `hello` before the backoff starts over.
@@ -109,10 +125,20 @@ impl EngineConfig {
             idle_tick: IDLE_TICK,
             pairing_second: PAIRING_SECOND,
             cluster_enabled: false,
+            cluster_port: DEFAULT_CLUSTER_PORT,
+            cluster_lan: false,
+            device_name: auth::FALLBACK_DEVICE_NAME.to_string(),
             keepalive_timeout: stream::KEEPALIVE_TIMEOUT,
             stream_stable_after: stream::STABLE_AFTER,
         }
     }
+}
+
+/// Why the test spot was not sent.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ClusterError {
+    #[error("The DX cluster isn't listening.")]
+    NotListening,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -165,6 +191,8 @@ struct Shared {
     /// The stream answered 403 for the stored token: never again with it (contract 3.1), whatever
     /// a later `GET /me` says. Cleared by signing in or out.
     scope_refused: AtomicBool,
+    /// The DX cluster's spot lines and connection count.
+    hub: Arc<ClusterHub>,
 }
 
 /// The running relay core.
@@ -172,6 +200,11 @@ struct Shared {
 pub struct Engine {
     shared: Arc<Shared>,
     listener: Mutex<Arc<UdpListener>>,
+    /// The DX cluster's listener; replaced when its port or bind address changes.
+    cluster: Mutex<Arc<ClusterServer>>,
+    /// Serialises the DX cluster's switch, port and network changes: each one waits for the old
+    /// listener to let go of its port before it binds again.
+    cluster_changes: tokio::sync::Mutex<()>,
     datagrams: mpsc::Sender<Datagram>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
     /// The token poll of the sign-in in progress.
@@ -214,10 +247,27 @@ impl Engine {
             stream_changes: watch::Sender::new(0),
             served: Mutex::new(HashMap::new()),
             scope_refused: AtomicBool::new(false),
+            hub: ClusterHub::new(config.device_name),
         });
         shared
             .state
             .set_cluster_enabled(config.cluster_enabled, Utc::now());
+        shared
+            .state
+            .set_cluster_lan(config.cluster_lan, lan_address_if(config.cluster_lan));
+        let cluster = ClusterServer::new(
+            Arc::clone(&shared.hub),
+            config.cluster_port,
+            config.cluster_lan,
+        );
+        let cluster_status = if config.cluster_enabled {
+            cluster.start()
+        } else {
+            cluster.status()
+        };
+        shared
+            .state
+            .set_cluster_listener(cluster_status, Utc::now());
         shared.restore_rows()?;
         if matches!(shared.tokens.load(), Ok(Some(_))) {
             shared.state.set_upstream(UpstreamStatus::Connected);
@@ -240,11 +290,14 @@ impl Engine {
                 stream_config,
                 shared.stream_changes.subscribe(),
             )),
+            tokio::spawn(watch_clients(Arc::clone(&shared))),
         ];
         shared.publish_feed();
         Ok(Self {
             shared,
             listener: Mutex::new(listener),
+            cluster: Mutex::new(Arc::new(cluster)),
+            cluster_changes: tokio::sync::Mutex::new(()),
             datagrams: tx,
             tasks: Mutex::new(tasks),
             pairing_task: Mutex::new(None),
@@ -271,13 +324,107 @@ impl Engine {
         self.shared.publish_feed();
     }
 
-    /// The DX cluster switch. While it is on the spots stream is held open. The caller saves the
-    /// setting.
-    pub fn set_cluster_enabled(&self, on: bool) -> ClusterView {
+    /// The current DX cluster listener. Never held across an await.
+    fn cluster(&self) -> Arc<ClusterServer> {
+        Arc::clone(&self.cluster.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    /// The DX cluster switch: on listens and holds the spots stream open, off closes every
+    /// connection and the stream. The caller saves the setting.
+    pub async fn set_cluster_enabled(&self, on: bool) -> ClusterView {
+        let _changing = self.cluster_changes.lock().await;
         self.shared.state.set_cluster_enabled(on, Utc::now());
+        let cluster = self.cluster();
+        let status = match (on, cluster.status()) {
+            (true, status @ ListenerStatus::Listening { .. }) => status,
+            (true, _) => cluster.start(),
+            (false, _) => {
+                cluster.close().await;
+                cluster.status()
+            }
+        };
+        let now = Utc::now();
+        self.shared.state.set_cluster_listener(status, now);
         self.shared.stream_changed();
         self.shared.publish_cluster();
-        self.shared.state.cluster_view(Utc::now())
+        self.shared.state.cluster_view(now)
+    }
+
+    /// Replaces the DX cluster's listener (closing its connections and waiting for its port to
+    /// be free) and starts the new one when the switch is on. The caller holds
+    /// `cluster_changes`.
+    async fn rebind_cluster(&self, port: u16, lan: bool) -> ClusterView {
+        self.cluster().close().await;
+        let cluster = Arc::new(ClusterServer::new(Arc::clone(&self.shared.hub), port, lan));
+        let status = if self.shared.state.cluster_enabled() {
+            cluster.start()
+        } else {
+            cluster.status()
+        };
+        *self.cluster.lock().unwrap_or_else(|e| e.into_inner()) = cluster;
+        let now = Utc::now();
+        self.shared.state.set_cluster_listener(status, now);
+        self.shared.publish_cluster();
+        self.shared.state.cluster_view(now)
+    }
+
+    /// "Change port". A port the user chose is used as is; only the default falls through. The
+    /// caller saves the setting.
+    pub async fn set_cluster_port(&self, port: u16) -> ClusterView {
+        let _changing = self.cluster_changes.lock().await;
+        let lan = self.shared.state.cluster_lan();
+        self.rebind_cluster(port, lan).await
+    }
+
+    /// "Let other computers on this network connect": rebinds on every IPv4 interface, or on
+    /// loopback only, on the same port. The caller saves the setting.
+    pub async fn set_cluster_lan(&self, on: bool) -> ClusterView {
+        let _changing = self.cluster_changes.lock().await;
+        self.shared.state.set_cluster_lan(on, lan_address_if(on));
+        let port = self.cluster().port();
+        self.rebind_cluster(port, on).await
+    }
+
+    /// "Send test spot" (contract 11.4): one line to every logged-in program, without the server.
+    pub fn send_test_spot(&self) -> Result<SentRow, ClusterError> {
+        if !matches!(
+            self.shared.state.cluster_listener(),
+            ListenerStatus::Listening { .. }
+        ) || !self.shared.state.cluster_enabled()
+        {
+            return Err(ClusterError::NotListening);
+        }
+        let now = Utc::now();
+        let spotter = self
+            .shared
+            .state
+            .account()
+            .map_or_else(|| NO_SPOTTER.to_string(), |a| a.callsign);
+        let spot = Spot {
+            id: 0,
+            spotter,
+            frequency_khz: TEST_SPOT_FREQUENCY_KHZ,
+            callsign: TEST_SPOT_CALLSIGN.into(),
+            comment: TEST_SPOT_COMMENT.into(),
+            time_utc: now.format("%H%M").to_string(),
+            mode: Some(TEST_SPOT_MODE.into()),
+            reference: None,
+            source: String::new(),
+            source_label: String::new(),
+            connection: String::new(),
+            spot_time: utc_text(now),
+        };
+        let clients = self.shared.hub.send_line(format_spot(&spot, now));
+        tracing::info!(clients, "sent a test spot");
+        let row = self.shared.state.push_sent(SentRow::test_spot(
+            TEST_SPOT_CALLSIGN,
+            TEST_SPOT_FREQUENCY_KHZ,
+            TEST_SPOT_MODE,
+            now,
+        ));
+        self.shared.bus.publish(Event::SpotSent(row.clone()));
+        self.shared.publish_cluster();
+        Ok(row)
     }
 
     /// Moves the listener to another port. The caller saves the setting.
@@ -393,6 +540,7 @@ impl Engine {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .stop();
+        self.cluster().close().await;
         for task in &tasks {
             task.abort();
         }
@@ -505,7 +653,9 @@ impl Shared {
             }
             served.insert(spot.id, Instant::now());
         }
-        let row = self.state.push_sent(SentRow::for_spot(&spot, Utc::now()));
+        let now = Utc::now();
+        self.hub.send_line(format_spot(&spot, now));
+        let row = self.state.push_sent(SentRow::for_spot(&spot, now));
         self.bus.publish(Event::SpotSent(row));
         self.publish_cluster();
     }
@@ -577,6 +727,9 @@ impl Shared {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
         let account = me.account();
+        if let Some(name) = me.device_name.as_deref().filter(|n| !n.trim().is_empty()) {
+            self.hub.set_device_name(name);
+        }
         *self.me_lock() = Some(me);
         let can_read = self
             .scopes()
@@ -1148,6 +1301,29 @@ impl RateWindow {
     }
 }
 
+/// The LAN address when other computers may connect.
+fn lan_address_if(lan: bool) -> Option<String> {
+    if lan {
+        crate::cluster::lan_address()
+    } else {
+        None
+    }
+}
+
+/// Keeps the DX cluster card's connection count current.
+async fn watch_clients(shared: Arc<Shared>) {
+    let mut clients = shared.hub.watch_clients();
+    loop {
+        let n = *clients.borrow_and_update();
+        if shared.state.set_cluster_clients(n) {
+            shared.publish_cluster();
+        }
+        if clients.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 async fn pipeline(shared: Arc<Shared>, mut rx: mpsc::Receiver<Datagram>) {
     while let Some(datagram) = rx.recv().await {
         shared.handle_datagram(datagram);
@@ -1245,6 +1421,26 @@ async fn sender(shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shell keeps the engine in Tauri's state and calls it from any thread.
+    #[test]
+    fn the_engine_is_send_and_sync() {
+        fn send_sync<T: Send + Sync + 'static>() {}
+        send_sync::<Engine>();
+    }
+
+    /// Tauri runs commands on any worker thread, so the DX cluster changes' futures must be
+    /// `Send` (the shell can't be built in every check, so the core says so here).
+    #[test]
+    fn cluster_changes_can_run_on_any_thread() {
+        fn send<T: Send>(_: &T) {}
+        let check = |engine: &Engine| {
+            send(&engine.set_cluster_enabled(true));
+            send(&engine.set_cluster_port(7373));
+            send(&engine.set_cluster_lan(true));
+        };
+        let _ = check;
+    }
 
     #[test]
     fn rate_window_counts_the_last_minute() {

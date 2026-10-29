@@ -112,7 +112,7 @@ The repository is a Cargo workspace plus a Vite app:
 
 | Path | What |
 | --- | --- |
-| `crates/relay-core` | Everything the relay does: the UDP listener, the N1MM parser, the checks, the outgoing queue, pairing, the Long Lines client and the spots stream. No Tauri dependency, so it builds and tests anywhere. |
+| `crates/relay-core` | Everything the relay does: the UDP listener, the N1MM parser, the checks, the outgoing queue, pairing, the Long Lines client, the spots stream and the local DX cluster. No Tauri dependency, so it builds and tests anywhere. |
 | `src-tauri` | The Tauri 2 shell: window, tray, commands, updater, autostart. |
 | `src` | The window (React, TypeScript, MUI). |
 | `docs/contract.md` | The API between the relay and Long Lines (v1 and v2, which the relay uses). |

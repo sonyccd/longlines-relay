@@ -1,7 +1,7 @@
 //! The relay's settings: a small versioned JSON file. Never holds the token.
 //!
 //! Unknown fields are ignored and missing ones take their defaults, so an older relay can read a
-//! newer file and the other way round. Phase 2 adds `telnet_port` as one more field.
+//! newer file and the other way round. Phase 2 added the DX cluster's three fields.
 
 use std::path::Path;
 
@@ -24,6 +24,13 @@ pub struct Settings {
     pub port: u16,
     /// "Start when I log in" (default on).
     pub autostart: bool,
+    /// The DX cluster switch (default off).
+    pub cluster_enabled: bool,
+    /// The DX cluster's port. The default falls through to 7374 ... 7399 when taken; this stays
+    /// 7373 so the next start tries it first.
+    pub cluster_port: u16,
+    /// "Let other computers on this network connect" (default off).
+    pub cluster_lan: bool,
 }
 
 impl Default for Settings {
@@ -32,6 +39,9 @@ impl Default for Settings {
             version: SETTINGS_VERSION,
             port: DEFAULT_PORT,
             autostart: true,
+            cluster_enabled: false,
+            cluster_port: DEFAULT_CLUSTER_PORT,
+            cluster_lan: false,
         }
     }
 }
@@ -84,6 +94,9 @@ impl Settings {
         if self.port == 0 {
             self.port = DEFAULT_PORT;
         }
+        if self.cluster_port == 0 {
+            self.cluster_port = DEFAULT_CLUSTER_PORT;
+        }
         // Version 1 is the first; later versions add their steps here.
         self.version = self.version.max(1);
     }
@@ -100,6 +113,9 @@ mod tests {
         assert_eq!(s, Settings::default());
         assert_eq!(s.port, 12060);
         assert!(s.autostart);
+        assert!(!s.cluster_enabled);
+        assert_eq!(s.cluster_port, 7373);
+        assert!(!s.cluster_lan);
     }
 
     #[test]
@@ -109,6 +125,9 @@ mod tests {
         let s = Settings {
             port: 12061,
             autostart: false,
+            cluster_enabled: true,
+            cluster_port: 7380,
+            cluster_lan: true,
             ..Settings::default()
         };
         s.save(&path).unwrap();
@@ -130,8 +149,13 @@ mod tests {
         assert_eq!(s.port, 12062);
         assert!(s.autostart);
         assert_eq!(s.version, 2);
-        std::fs::write(&path, r#"{"port": 0}"#).unwrap();
-        assert_eq!(Settings::load(&path).unwrap().port, DEFAULT_PORT);
+        // A phase 1 file has no cluster fields: they take their defaults.
+        assert!(!s.cluster_enabled);
+        assert_eq!(s.cluster_port, DEFAULT_CLUSTER_PORT);
+        std::fs::write(&path, r#"{"port": 0, "cluster_port": 0}"#).unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert_eq!(s.port, DEFAULT_PORT);
+        assert_eq!(s.cluster_port, DEFAULT_CLUSTER_PORT);
     }
 
     #[test]

@@ -1,0 +1,23 @@
+DX de HA7UL:      7146.0  HA7UL/P      CROTA HU-BCS-003               1316Z
+DX de F5PMW:     14238.0  KC1TLT                                      1316Z
+DX de AC3RA:      7040.5  WB4HRL                                      1316Z
+DX de M8NAQ:      7180.0  M7VDP        B/G-1042 ROC Group HQ No 12 -  1316Z
+DX de YB1LVL:    28074.0  F4HKP        FT8 -19dB from JN18 1524Hz     1316Z
+DX de EA7LMB:    21325.0  FM5BH        CQ DX                          1316Z
+DX de KC4JNS:    14228.0  K5CB         TX POTA 4371                   1317Z
+DX de EU4ABI:    21233.0  EA5H         cq 15 tnx 4 qso 73             1317Z
+DX de PD1JN:     14296.0  LY0AM        tnx 73                         1317Z
+DX de YB1LVL:    28074.0  IZ4TSV       FT8 -18dB from JN54 1933Hz     1317Z
+DX de UR2680YL:  14095.6  EA6AJ        WSPR sign -26                  1317Z
+DX de F5FRM:     21285.0  YC0SJA       CQ                             1318Z
+DX de UR2680YL:  14095.6  UR2680YL     SWL DigiClub University        1318Z
+DX de KB8OTK:    14075.2  VP2MAW                                      1318Z
+DX de F5PMW:     21325.0  FM5BH        IOTA NA 107                    1318Z
+DX de EA1FIC:    14305.0  SV8/DJ0MY    SSB [POTA] GR-0131 cq cq       1318Z
+DX de KC4JNS:    14225.0  KI4QVM       POTA US-0542                   1318Z
+DX de N0YO:      24915.8  F6HST                                       1319Z
+DX de EA2DSI:     7140.0  AM5GC        Dia de la Hispanidad y Diploma 1319Z
+DX de EA4HAG:     7060.0  EA1FIX       QSL ESPECIAL VIRGEN DEL PILAR  1319Z
+DX de DK2EA:     50313.0  EA5QE        JO50UF<>IM98PB 1004Hz CQ -8    1319Z
+DX de AC3RA:      7031.5  K1EBY                                       1319Z
+DX de IT9IAU:    18100.0  N1AQ         73 from Gabriele - FT8         1319Z

@@ -1,7 +1,8 @@
-//! Inbound listeners share one lifecycle so the feed card can show any of them.
+//! Inbound listeners share one lifecycle so the window can show any of them.
 //!
-//! Phase 1 registers only [`udp::UdpListener`]. A phase 2 telnet server (a DX cluster on
-//! loopback) implements the same trait.
+//! [`udp::UdpListener`] receives logger broadcasts for the contacts pipeline; the DX cluster's
+//! [`crate::cluster::server::ClusterServer`] implements the same trait but never hands anything
+//! to that pipeline.
 
 pub mod udp;
 
@@ -32,7 +33,7 @@ impl ListenerStatus {
     }
 }
 
-/// One datagram (or, later, one line) from a local program.
+/// One datagram from a local program.
 #[derive(Clone, Debug)]
 pub struct Datagram {
     pub at: DateTime<Utc>,

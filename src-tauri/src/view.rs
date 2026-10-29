@@ -11,12 +11,16 @@ use crate::Relay;
 pub struct SettingsView {
     pub port: u16,
     pub autostart: bool,
+    pub cluster_enabled: bool,
+    /// The saved DX cluster port; the bound one is `cluster.port`.
+    pub cluster_port: u16,
+    pub cluster_lan: bool,
 }
 
 /// The `state` event and `get_state`'s answer.
 #[derive(Clone, Debug, Serialize)]
 pub struct ShellView {
-    /// `account`, `feed`, `upstream`, `pairing` and `stream`.
+    /// `account`, `feed`, `upstream`, `pairing`, `stream`, `cluster` and `sent`.
     #[serde(flatten)]
     pub snapshot: Snapshot,
     /// A token is stored: the main screen shows, even before `GET /me` answers.
@@ -36,6 +40,9 @@ pub fn build(app: &AppHandle) -> ShellView {
         settings: SettingsView {
             port: settings.port,
             autostart: settings.autostart,
+            cluster_enabled: settings.cluster_enabled,
+            cluster_port: settings.cluster_port,
+            cluster_lan: settings.cluster_lan,
         },
         update: relay.updates.view(),
         version: app.package_info().version.to_string(),

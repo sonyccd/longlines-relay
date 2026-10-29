@@ -95,11 +95,11 @@ async fn opens_only_while_the_switch_is_on() {
     assert_eq!(s.engine.snapshot().cluster.status, ClusterStatus::Off);
     assert_eq!(s.engine.snapshot().cluster.upstream, ClusterUpstream::Off);
 
-    let view = s.engine.set_cluster_enabled(true);
+    let view = s.engine.set_cluster_enabled(true).await;
     assert!(view.enabled);
     s.stream.wait("the stream to open", |st| st.open == 1).await;
 
-    s.engine.set_cluster_enabled(false);
+    s.engine.set_cluster_enabled(false).await;
     s.stream
         .wait("the stream to close", |st| st.open == 0 && st.closed == 1)
         .await;
@@ -141,7 +141,7 @@ async fn reconnects_after_the_stream_ends_or_goes_quiet() {
     s.stream.reply(StreamReply::Open {
         initial: hello_event(),
     });
-    s.engine.set_cluster_enabled(true);
+    s.engine.set_cluster_enabled(true).await;
     wait_until(&s.engine, "the spot", |snap| snap.sent.len() == 1).await;
     s.stream
         .wait("the quiet stream to be dropped", |st| {
@@ -162,7 +162,7 @@ async fn waits_out_retry_after() {
         retry_after: Some(1),
     });
     let started = std::time::Instant::now();
-    s.engine.set_cluster_enabled(true);
+    s.engine.set_cluster_enabled(true).await;
     wait_until(&s.engine, "retrying", |snap| {
         matches!(snap.cluster.upstream, ClusterUpstream::Retrying { .. })
     })
@@ -182,7 +182,7 @@ async fn a_token_without_the_scope_never_reconnects() {
         error: "insufficient_scope",
         retry_after: None,
     });
-    s.engine.set_cluster_enabled(true);
+    s.engine.set_cluster_enabled(true).await;
     let snap = wait_until(&s.engine, "scope missing", |snap| {
         snap.cluster.status == ClusterStatus::ScopeMissing
     })
@@ -235,7 +235,7 @@ async fn a_refused_token_signs_out() {
         error: "bad_token",
         retry_after: None,
     });
-    s.engine.set_cluster_enabled(true);
+    s.engine.set_cluster_enabled(true).await;
     wait_until(&s.engine, "signed out", |snap| {
         snap.upstream == UpstreamStatus::SignedOut
     })
@@ -259,7 +259,7 @@ async fn never_sends_the_token_to_a_plain_http_host() {
         s.server.state.lock().unwrap().me_calls >= 2
     })
     .await;
-    s.engine.set_cluster_enabled(true);
+    s.engine.set_cluster_enabled(true).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(s.engine.snapshot().cluster.upstream, ClusterUpstream::Off);
     s.engine.shutdown().await;
