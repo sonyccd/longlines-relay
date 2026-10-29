@@ -94,7 +94,7 @@ export function FeedCard({ feed, account, run }: { feed: FeedView; account: Acco
             <Alert severity="error">
               <AlertTitle>{copy.feed.portInUse(feed.port)}</AlertTitle>
               <Stack spacing={2}>
-                <span>{copy.feed.portInUseHelp}</span>
+                <span>{copy.feed.portInUseRetryHelp}</span>
                 <PortField
                   key={feed.port}
                   id="feed-port"

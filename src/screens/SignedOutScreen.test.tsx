@@ -63,6 +63,15 @@ describe("signed out", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(title);
   });
 
+  it("warns when the sign-out couldn't remove the token", async () => {
+    mockTauri(signedOutView({ sign_out_incomplete: true }));
+    renderWithTheme(<App />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't remove the sign-in from this computer");
+    expect(alert).toHaveTextContent("The relay won't use it again, and keeps trying to remove it.");
+    expect(screen.getByRole("button", { name: "Sign in with Long Lines" })).toBeEnabled();
+  });
+
   it("disables the button while asking for a code", async () => {
     mockTauri(signedOutView({ pairing: { state: "starting" } }));
     renderWithTheme(<App />);

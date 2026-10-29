@@ -32,7 +32,9 @@ export type UpstreamStatus =
   | { state: "signed_out" }
   | { state: "connected" }
   | { state: "retrying"; at: string; reason: string }
-  | { state: "rate_limited"; until: string };
+  | { state: "rate_limited"; until: string }
+  /** The credential store couldn't be read (a locked keyring); the relay keeps trying. */
+  | { state: "credential_store_unavailable" };
 
 export type PairingFailure = "expired" | "denied" | "unreachable" | "refused";
 
@@ -142,6 +144,8 @@ export interface Snapshot {
   cluster: ClusterView;
   /** Spots sent to logging software, newest first. */
   sent: SentRow[];
+  /** Signed out, but the credential store still holds the token; the relay never uses it. */
+  sign_out_incomplete: boolean;
 }
 
 export type UpdateView =

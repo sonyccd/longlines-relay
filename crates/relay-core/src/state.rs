@@ -183,6 +183,9 @@ pub enum UpstreamStatus {
     Retrying { at: DateTime<Utc>, reason: String },
     /// 429: waiting until `until`.
     RateLimited { until: DateTime<Utc> },
+    /// The OS credential store couldn't be read (for example a locked keyring). Not signed out:
+    /// the relay keeps trying and goes on once it can read the token.
+    CredentialStoreUnavailable,
 }
 
 /// Everything the window needs to draw itself.
@@ -199,6 +202,9 @@ pub struct Snapshot {
     pub cluster: ClusterView,
     /// Spots sent to logging software, newest first.
     pub sent: Vec<SentRow>,
+    /// Signed out, but the credential store still holds the token. The relay never uses it and
+    /// keeps trying to delete it.
+    pub sign_out_incomplete: bool,
 }
 
 /// The DX cluster card's chip.
@@ -406,6 +412,7 @@ struct Inner {
     upstream: UpstreamStatus,
     pairing: PairingView,
     cluster: Cluster,
+    sign_out_incomplete: bool,
 }
 
 /// Shared, lock-protected app state.
@@ -451,6 +458,7 @@ impl RelayState {
                     rows: VecDeque::with_capacity(SENT_LIMIT),
                     next_row_id: 1,
                 },
+                sign_out_incomplete: false,
             }),
         }
     }
@@ -570,6 +578,18 @@ impl RelayState {
 
     pub fn pairing(&self) -> PairingView {
         self.lock().pairing.clone()
+    }
+
+    /// Returns true when it changed.
+    pub fn set_sign_out_incomplete(&self, incomplete: bool) -> bool {
+        let mut inner = self.lock();
+        let changed = inner.sign_out_incomplete != incomplete;
+        inner.sign_out_incomplete = incomplete;
+        changed
+    }
+
+    pub fn sign_out_incomplete(&self) -> bool {
+        self.lock().sign_out_incomplete
     }
 
     pub fn feed_view(&self, dropped_packets: u64) -> FeedView {
@@ -747,6 +767,7 @@ impl RelayState {
             stream: self.rows(),
             cluster: self.cluster_view(now),
             sent: self.sent_rows(),
+            sign_out_incomplete: self.sign_out_incomplete(),
         }
     }
 }

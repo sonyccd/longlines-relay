@@ -48,6 +48,21 @@ impl UdpListener {
     fn lock(&self) -> std::sync::MutexGuard<'_, Running> {
         self.running.lock().unwrap_or_else(|e| e.into_inner())
     }
+
+    /// Stops receiving and waits until the socket is closed, so the port can be bound again at
+    /// once. ([`Listener::stop`] only asks the receive task to end.)
+    pub async fn shutdown(&self) {
+        let task = {
+            let mut running = self.lock();
+            running.status = ListenerStatus::Stopped { port: self.port };
+            running.task.take()
+        };
+        if let Some(task) = task {
+            task.abort();
+            // A cancelled task's future, and the socket it owns, is dropped before this returns.
+            let _ = task.await;
+        }
+    }
 }
 
 /// `std` binds without `SO_REUSEADDR`, so a port another program holds fails here instead of
@@ -61,15 +76,20 @@ fn bind(port: u16) -> io::Result<UdpSocket> {
 impl Listener for UdpListener {
     fn start(&self) -> ListenerStatus {
         let mut running = self.lock();
-        if let Some(task) = running.task.take() {
-            task.abort();
+        if running.task.as_ref().is_some_and(|t| !t.is_finished()) {
+            // Rebinding here would race the old socket, which closes only once its task ends.
+            return running.status.clone();
         }
         let socket = match bind(self.port) {
             Ok(s) => s,
             Err(e) => {
                 // Any bind failure is shown as "in use": on Windows a port held exclusively
                 // answers access denied, and the remedy is the same, another port.
-                tracing::warn!(port = self.port, error = %e, kind = ?e.kind(), "couldn't bind the UDP port");
+                if matches!(running.status, ListenerStatus::PortInUse { .. }) {
+                    tracing::debug!(port = self.port, error = %e, "the UDP port is still in use");
+                } else {
+                    tracing::warn!(port = self.port, error = %e, kind = ?e.kind(), "couldn't bind the UDP port");
+                }
                 running.status = ListenerStatus::PortInUse { port: self.port };
                 return running.status.clone();
             }
@@ -159,6 +179,38 @@ mod tests {
         assert!(got.source.ip().is_loopback());
         l.stop();
         assert_eq!(l.status(), ListenerStatus::Stopped { port: 0 });
+    }
+
+    #[tokio::test]
+    async fn start_while_listening_keeps_the_socket() {
+        let (l, mut rx) = listener(0, SourceFilter::with_addresses([]));
+        let first = l.start();
+        assert!(matches!(first, ListenerStatus::Listening { .. }));
+        for _ in 0..20 {
+            assert_eq!(l.start(), first);
+        }
+        let ListenerStatus::Listening { port } = first else {
+            unreachable!()
+        };
+        StdUdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .send_to(b"<x/>", ("127.0.0.1", port))
+            .unwrap();
+        let got = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await;
+        assert!(got.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn after_shutdown_the_same_port_binds_at_once() {
+        let probe = StdUdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        for _ in 0..20 {
+            let (l, _rx) = listener(port, SourceFilter::with_addresses([]));
+            assert_eq!(l.start(), ListenerStatus::Listening { port });
+            l.shutdown().await;
+            assert_eq!(l.status(), ListenerStatus::Stopped { port });
+        }
     }
 
     #[tokio::test]

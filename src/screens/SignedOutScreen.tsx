@@ -26,6 +26,13 @@ export function SignedOutScreen({ view, run }: { view: ShellView; run: Run }) {
         </Typography>
       </Box>
 
+      {view.sign_out_incomplete && (
+        <Alert severity="warning">
+          <AlertTitle>{copy.signedOut.signOutIncomplete.title}</AlertTitle>
+          {copy.signedOut.signOutIncomplete.text}
+        </Alert>
+      )}
+
       {failure && (
         <Alert severity="error">
           <AlertTitle>{failure.title}</AlertTitle>

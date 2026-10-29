@@ -9,10 +9,10 @@ mod tray;
 mod updates;
 mod view;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use relay_core::engine::{Engine, EngineConfig};
+use relay_core::engine::{Engine, EngineConfig, EngineError};
 use relay_core::logging::WorkerGuard;
 use relay_core::settings::{Settings, SETTINGS_FILE};
 use relay_core::upstream::auth::device_name_from;
@@ -128,6 +128,33 @@ fn sync_autostart(app: &AppHandle, wanted: bool) -> Result<(), String> {
     })
 }
 
+/// Moves a queue file that can't be opened (and its WAL files) out of the way, keeping it for
+/// diagnosis, so the relay can start with an empty queue.
+fn set_queue_aside(queue: &Path) {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    for suffix in ["", "-wal", "-shm"] {
+        let mut from = queue.as_os_str().to_owned();
+        from.push(suffix);
+        let from = PathBuf::from(from);
+        if !from.exists() {
+            continue;
+        }
+        let mut to = queue.as_os_str().to_owned();
+        to.push(format!(".unreadable-{stamp}{suffix}"));
+        let to = PathBuf::from(to);
+        match std::fs::rename(&from, &to) {
+            Ok(()) => {
+                tracing::warn!(from = %from.display(), to = %to.display(), "set the queue file aside");
+            }
+            Err(e) => {
+                tracing::error!(error = %e, path = %from.display(), "couldn't set the queue file aside");
+            }
+        }
+    }
+}
+
 /// Forwards engine events to the page. A burst of events sends one state.
 fn spawn_bridge(app: AppHandle) {
     let mut events = app.state::<Relay>().engine.subscribe();
@@ -168,15 +195,30 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(%version, port = settings.port, "Long Lines Relay starting");
 
     let tokens = Arc::new(CachingTokenStore::new(KeyringTokenStore::new()));
-    let client = ClientConfig::new(base_url_from_env(), version);
-    let mut config = EngineConfig::new(settings.port, data_dir.join(QUEUE_FILE), client, tokens);
-    config.cluster_enabled = settings.cluster_enabled;
-    config.cluster_port = settings.cluster_port;
-    config.cluster_lan = settings.cluster_lan;
+    let queue_path = data_dir.join(QUEUE_FILE);
     // The DX cluster's greeting names the computer until `GET /me` gives the paired name.
-    config.device_name = device_name_from(&gethostname::gethostname().to_string_lossy());
+    let device_name = device_name_from(&gethostname::gethostname().to_string_lossy());
+    let config = || {
+        let client = ClientConfig::new(base_url_from_env(), version.clone());
+        let mut config =
+            EngineConfig::new(settings.port, queue_path.clone(), client, tokens.clone());
+        config.cluster_enabled = settings.cluster_enabled;
+        config.cluster_port = settings.cluster_port;
+        config.cluster_lan = settings.cluster_lan;
+        config.device_name = device_name.clone();
+        config
+    };
     // The engine spawns its tasks on Tauri's Tokio runtime.
-    let engine = tauri::async_runtime::block_on(Engine::start(config))?;
+    let engine = match tauri::async_runtime::block_on(Engine::start(config())) {
+        Ok(engine) => engine,
+        Err(EngineError::Queue(e)) => {
+            // A queue that can't be opened must not keep the relay from starting.
+            tracing::error!(error = %e, "couldn't open the outgoing queue; starting a new one");
+            set_queue_aside(&queue_path);
+            tauri::async_runtime::block_on(Engine::start(config()))?
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     if let Err(e) = sync_autostart(&handle, settings.autostart) {
         tracing::warn!(error = %e, "couldn't match the login item to the settings");
