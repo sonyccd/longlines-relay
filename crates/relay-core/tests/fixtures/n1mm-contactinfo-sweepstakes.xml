@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<contactinfo>
+	<app>N1MM</app>
+	<contestname>SSCW</contestname>
+	<contestnr>74</contestnr>
+	<timestamp>2026-11-07 21:14:05</timestamp>
+	<mycall>KK4PWJ</mycall>
+	<band>14</band>
+	<rxfreq>1403150</rxfreq>
+	<txfreq>1403150</txfreq>
+	<operator></operator>
+	<mode>CW</mode>
+	<call>K4ABC</call>
+	<countryprefix>K</countryprefix>
+	<wpxprefix>K4</wpxprefix>
+	<stationprefix>KK4PWJ</stationprefix>
+	<continent>NA</continent>
+	<snt>599</snt>
+	<sntnr>212</sntnr>
+	<rcv>599</rcv>
+	<rcvnr>187</rcvnr>
+	<gridsquare></gridsquare>
+	<exchange1></exchange1>
+	<section>NC</section>
+	<comment></comment>
+	<qth></qth>
+	<name></name>
+	<power></power>
+	<misctext></misctext>
+	<zone>5</zone>
+	<prec>A</prec>
+	<ck>93</ck>
+	<ismultiplier1>0</ismultiplier1>
+	<ismultiplier2>0</ismultiplier2>
+	<ismultiplier3>1</ismultiplier3>
+	<points>1</points>
+	<radionr>1</radionr>
+	<run1run2>1</run1run2>
+	<RoverLocation></RoverLocation>
+	<RadioInterfaced>1</RadioInterfaced>
+	<NetworkedCompNr>0</NetworkedCompNr>
+	<IsOriginal>True</IsOriginal>
+	<NetBiosName></NetBiosName>
+	<IsRunQSO>0</IsRunQSO>
+	<StationName>CONTEST-PC</StationName>
+	<ID>2c4e6a8b0d1f43a5b7c9e1f3a5c7e9b1</ID>
+	<IsClaimedQso>1</IsClaimedQso>
+</contactinfo>

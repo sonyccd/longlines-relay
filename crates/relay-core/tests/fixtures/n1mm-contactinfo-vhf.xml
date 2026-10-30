@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<contactinfo>
+	<app>N1MM</app>
+	<contestname>ARRLVHFJAN</contestname>
+	<contestnr>75</contestnr>
+	<timestamp>2026-01-17 19:02:41</timestamp>
+	<mycall>KK4PWJ</mycall>
+	<band>50</band>
+	<rxfreq>5012500</rxfreq>
+	<txfreq>5012500</txfreq>
+	<operator></operator>
+	<mode>USB</mode>
+	<call>N4AB</call>
+	<countryprefix>K</countryprefix>
+	<wpxprefix>N4</wpxprefix>
+	<stationprefix>KK4PWJ</stationprefix>
+	<continent>NA</continent>
+	<snt>59</snt>
+	<sntnr>5</sntnr>
+	<rcv>59</rcv>
+	<rcvnr>0</rcvnr>
+	<gridsquare>fm05pu</gridsquare>
+	<exchange1></exchange1>
+	<section></section>
+	<comment></comment>
+	<qth></qth>
+	<name></name>
+	<power></power>
+	<misctext></misctext>
+	<zone>0</zone>
+	<prec></prec>
+	<ck>0</ck>
+	<ismultiplier1>0</ismultiplier1>
+	<ismultiplier2>0</ismultiplier2>
+	<ismultiplier3>1</ismultiplier3>
+	<points>1</points>
+	<radionr>1</radionr>
+	<run1run2>1</run1run2>
+	<RoverLocation></RoverLocation>
+	<RadioInterfaced>1</RadioInterfaced>
+	<NetworkedCompNr>0</NetworkedCompNr>
+	<IsOriginal>True</IsOriginal>
+	<NetBiosName></NetBiosName>
+	<IsRunQSO>0</IsRunQSO>
+	<StationName>CONTEST-PC</StationName>
+	<ID>7e1a3c5d9f0b42e6a8c0d2f4b6e8a0c2</ID>
+	<IsClaimedQso>1</IsClaimedQso>
+</contactinfo>

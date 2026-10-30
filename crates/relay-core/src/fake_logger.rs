@@ -26,6 +26,12 @@ pub struct FakeContact {
     pub id: Option<String>,
     pub is_original: bool,
     pub station_name: String,
+    /// The worked station's locator and received location fields; empty by default, as on a
+    /// contact with no exchange.
+    pub gridsquare: String,
+    pub exchange1: String,
+    pub section: String,
+    pub qth: String,
 }
 
 impl FakeContact {
@@ -41,6 +47,10 @@ impl FakeContact {
             id: Some(new_id()),
             is_original: true,
             station_name: "SHACK-PC".into(),
+            gridsquare: String::new(),
+            exchange1: String::new(),
+            section: String::new(),
+            qth: String::new(),
         }
     }
 
@@ -91,7 +101,11 @@ impl FakeContact {
         field(&mut xml, "call", &self.call);
         field(&mut xml, "snt", "599");
         field(&mut xml, "rcv", "599");
+        field(&mut xml, "gridsquare", &self.gridsquare);
+        field(&mut xml, "exchange1", &self.exchange1);
+        field(&mut xml, "section", &self.section);
         field(&mut xml, "comment", "");
+        field(&mut xml, "qth", &self.qth);
         field(&mut xml, "radionr", "1");
         field(
             &mut xml,
@@ -184,6 +198,22 @@ mod tests {
             Ok(Packet::Other("RadioInfo".into()))
         );
         assert!(parse(MALFORMED.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn location_fields_parse_back() {
+        let mut c = contact();
+        let Packet::Contact(info) = parse(c.info_xml().as_bytes()).unwrap() else {
+            panic!()
+        };
+        assert_eq!((info.state, info.gridsquare), (None, None));
+        c.gridsquare = "FM05pu".into();
+        c.section = "NC".into();
+        let Packet::Contact(info) = parse(c.info_xml().as_bytes()).unwrap() else {
+            panic!()
+        };
+        assert_eq!(info.state.as_deref(), Some("NC"));
+        assert_eq!(info.gridsquare.as_deref(), Some("FM05PU"));
     }
 
     #[test]

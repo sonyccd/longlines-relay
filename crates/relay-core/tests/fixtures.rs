@@ -34,6 +34,100 @@ fn n1mm_contactinfo() {
     assert_eq!(c.id.as_deref(), Some("f9ffac4fcd3e479ca86e137df1338531"));
     assert!(c.is_original);
     assert_eq!(c.station_name.as_deref(), Some("CONTEST-PC"));
+    // Its gridsquare, exchange1, section and qth elements are empty.
+    assert_eq!(c.state, None);
+    assert_eq!(c.gridsquare, None);
+}
+
+#[test]
+fn n1mm_sweepstakes_section_is_the_state() {
+    let c = contact("n1mm-contactinfo-sweepstakes.xml");
+    assert_eq!(c.call, "K4ABC");
+    assert_eq!(c.state.as_deref(), Some("NC"));
+    assert_eq!(c.gridsquare, None);
+}
+
+#[test]
+fn n1mm_vhf_contest_grid() {
+    let c = contact("n1mm-contactinfo-vhf.xml");
+    assert_eq!(c.call, "N4AB");
+    assert_eq!(c.frequency_hz, Some(50_125_000));
+    // Upper-cased; the subsquare letters arrive in lower case.
+    assert_eq!(c.gridsquare.as_deref(), Some("FM05PU"));
+    assert_eq!(c.state, None);
+}
+
+#[test]
+fn n1mm_qso_party_exchange_is_the_state() {
+    let c = contact("n1mm-contactinfo-qso-party.xml");
+    assert_eq!(c.call, "W4DOG");
+    assert_eq!(c.state.as_deref(), Some("VA"));
+}
+
+/// The sweepstakes fixture with one element's value swapped.
+fn sweepstakes_with(element: &str, value: &str) -> LoggedContact {
+    let xml = String::from_utf8(fixture("n1mm-contactinfo-sweepstakes.xml")).unwrap();
+    let open = format!("<{element}>");
+    let close = format!("</{element}>");
+    let start = xml.find(&open).unwrap() + open.len();
+    let end = xml[start..].find(&close).unwrap() + start;
+    let xml = format!("{}{value}{}", &xml[..start], &xml[end..]);
+    match parse(xml.as_bytes()) {
+        Ok(Packet::Contact(c)) => c,
+        other => panic!("expected a contact, got {other:?}"),
+    }
+}
+
+#[test]
+fn only_an_exact_state_code_counts() {
+    // An ARRL section that is not a state's postal code (part of New York) is never guessed at.
+    assert_eq!(sweepstakes_with("section", "ENY").state, None);
+    assert_eq!(
+        sweepstakes_with("section", "nc").state.as_deref(),
+        Some("NC")
+    );
+    assert_eq!(
+        sweepstakes_with("section", "DC").state.as_deref(),
+        Some("DC")
+    );
+    assert_eq!(sweepstakes_with("section", "ON").state, None);
+    assert_eq!(sweepstakes_with("section", "PR").state, None);
+    // A county in the exchange beside a section is not a second state.
+    let c = sweepstakes_with("exchange1", "WAKE");
+    assert_eq!(c.state.as_deref(), Some("NC"));
+    // Two different states in two fields: neither is sent.
+    assert_eq!(sweepstakes_with("qth", "VA").state, None);
+    assert_eq!(sweepstakes_with("qth", "NC").state.as_deref(), Some("NC"));
+}
+
+#[test]
+fn a_state_element_is_read_when_a_logger_sends_one() {
+    let xml = b"<contactinfo><call>K4ABC</call><State>ga</State></contactinfo>";
+    let Ok(Packet::Contact(c)) = parse(xml) else {
+        panic!()
+    };
+    assert_eq!(c.state.as_deref(), Some("GA"));
+}
+
+#[test]
+fn an_unusable_grid_is_left_out() {
+    assert_eq!(
+        sweepstakes_with("gridsquare", "FM05").gridsquare.as_deref(),
+        Some("FM05")
+    );
+    assert_eq!(
+        sweepstakes_with("gridsquare", "FM05pu47")
+            .gridsquare
+            .as_deref(),
+        Some("FM05PU47")
+    );
+    for bad in ["FM0", "FM05p", "ZZ99", "FM05PU47XX", "NC"] {
+        assert_eq!(
+            sweepstakes_with("gridsquare", bad).gridsquare,
+            None,
+            "{bad}"
+        );
+    }
 }
 
 #[test]

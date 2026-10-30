@@ -61,6 +61,44 @@ async fn sends_a_contact_as_a_spot() {
         c.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string()
     );
     assert_eq!(item["logger_app"], "N1MM");
+    // The logger gave no state or grid square, so neither key is sent.
+    assert!(item.get("state").is_none());
+    assert!(item.get("gridsquare").is_none());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_contact_carries_the_loggers_state_and_grid() {
+    let server = FakeLongLines::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = start_engine(&dir.path().join("q.sqlite3"), &server.uri(), signed_in()).await;
+    wait_signed_in(&engine).await;
+    let mut c = contact("KK4PWJ", "K4ABC");
+    c.id = None;
+    c.section = "nc".into();
+    c.gridsquare = "fm05pu".into();
+    send(port(&engine), c.info_xml().as_bytes()).unwrap();
+    let mut plain = contact("KK4PWJ", "N4AB");
+    plain.exchange1 = "ENY".into();
+    plain.gridsquare = "FM0".into();
+    send(port(&engine), plain.info_xml().as_bytes()).unwrap();
+    wait_rows_final(&engine, 2).await;
+    let items = server.items();
+    assert_eq!(items[0]["state"], "NC");
+    assert_eq!(items[0]["gridsquare"], "FM05PU");
+    // Neither enters the hash.
+    let want = relay_core::external_id::fallback_hash(relay_core::external_id::HashFields {
+        mycall: "KK4PWJ",
+        call: "K4ABC",
+        band: Some("20m"),
+        mode: "CW",
+        timestamp_utc: &c.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+    });
+    assert_eq!(items[0]["external_id"], want);
+    // A section that is not a state code and a short grid are left out, not sent as they came.
+    assert_eq!(items[1]["call"], "N4AB");
+    assert!(items[1].get("state").is_none());
+    assert!(items[1].get("gridsquare").is_none());
     engine.shutdown().await;
 }
 

@@ -641,7 +641,8 @@ fn logger_app(app: Option<&str>) -> Option<String> {
 
 /// What the pipeline decided for one contact packet.
 enum Decision {
-    Queue(QueuedContact),
+    /// Boxed: a queued contact is several times the size of a final status.
+    Queue(Box<QueuedContact>),
     Final(RowStatus),
 }
 
@@ -1077,7 +1078,7 @@ impl Shared {
                 timestamp_utc: &timestamp_utc,
             },
         );
-        Decision::Queue(QueuedContact {
+        Decision::Queue(Box::new(QueuedContact {
             external_id: id,
             op: Op::Upsert,
             kind: c.kind,
@@ -1088,7 +1089,9 @@ impl Shared {
             mode: c.mode.clone(),
             timestamp_utc,
             logger_app: logger_app(c.app.as_deref()),
-        })
+            state: c.state.clone(),
+            gridsquare: c.gridsquare.clone(),
+        }))
     }
 
     fn decide_delete(&self, c: &LoggedContact, now: DateTime<Utc>) -> Decision {
@@ -1126,7 +1129,7 @@ impl Shared {
                 timestamp_utc: &timestamp_utc,
             },
         );
-        Decision::Queue(QueuedContact {
+        Decision::Queue(Box::new(QueuedContact {
             external_id: id,
             op: Op::Delete,
             kind: ContactKind::Delete,
@@ -1137,7 +1140,9 @@ impl Shared {
             mode: c.mode.clone(),
             timestamp_utc,
             logger_app: logger_app(c.app.as_deref()),
-        })
+            state: None,
+            gridsquare: None,
+        }))
     }
 
     // ---- sender ----
@@ -1607,6 +1612,8 @@ mod tests {
             mode: "CW".into(),
             timestamp_utc: "2026-10-28T21:14:00Z".into(),
             logger_app: None,
+            state: None,
+            gridsquare: None,
         };
         assert_eq!(row_status_for(&c, &ItemStatus::Created), RowStatus::Sent);
         assert_eq!(row_status_for(&c, &ItemStatus::Unchanged), RowStatus::Sent);
