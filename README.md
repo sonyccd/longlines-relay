@@ -2,6 +2,8 @@
 
 # Long Lines Relay
 
+[![codecov](https://codecov.io/gh/sonyccd/longlines-relay/graph/badge.svg)](https://codecov.io/gh/sonyccd/longlines-relay)
+
 Long Lines Relay is a small desktop app that sends the contacts you log to
 [Long Lines](https://longlines.io) as spots. Your logging software already broadcasts each
 contact on your computer in the N1MM Logger+ format; the relay catches those packets and posts
@@ -146,9 +148,18 @@ cargo clippy -p relay-core --all-targets -- -D warnings
 cargo fmt --all -- --check
 npm ci
 npm test                       # the window (Vitest)
+npm run coverage               # the window's tests with coverage (coverage/lcov.info)
 npm run lint                   # oxlint
 npm run build                  # tsc + vite build
 ```
+
+CI runs both test suites under coverage and uploads the reports to
+[Codecov](https://codecov.io/gh/sonyccd/longlines-relay): `core` from
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over `crates/relay-core`, `window`
+from Vitest over `src`. `codecov.yml` sets the checks to informational, so coverage never fails a
+pull request. Uploads need the `CODECOV_TOKEN` repository secret (from the repository's settings
+on Codecov); pull requests from forks upload without it. For the core's coverage locally:
+`cargo install cargo-llvm-cov`, then `cargo llvm-cov -p relay-core --html`.
 
 `crates/relay-core/tests/ui_shape.rs` pins the JSON the window reads to
 `src/test/fixtures/snapshot.json`, which the window's tests load. After changing that shape on
