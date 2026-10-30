@@ -20,6 +20,10 @@ Options:
   --freq N             rxfreq/txfreq in 10 Hz units (default 1402500, 14.025 MHz)
   --mode MODE          mode (default CW)
   --app NAME           app element (default N1MM)
+  --grid GRID          gridsquare element, the worked station's locator (default empty)
+  --section TEXT       section element (default empty)
+  --qth TEXT           qth element (default empty)
+  --exchange1 TEXT     exchange1 element (default empty)
   --sequence LIST      comma-separated: info, replace, delete, radioinfo, malformed (default info)
   --offset-minutes N   timestamp N minutes before now; negative is in the future (default 0)
   --id ID              contact ID (default a fresh 32-hex ID)
@@ -65,6 +69,10 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--mode" => contact.mode = value("--mode")?,
             "--app" => contact.app = value("--app")?,
+            "--grid" => contact.gridsquare = value("--grid")?,
+            "--section" => contact.section = value("--section")?,
+            "--qth" => contact.qth = value("--qth")?,
+            "--exchange1" => contact.exchange1 = value("--exchange1")?,
             "--sequence" => {
                 sequence = value("--sequence")?
                     .split(',')

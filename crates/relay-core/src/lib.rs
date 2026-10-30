@@ -23,6 +23,7 @@ pub mod external_id;
 pub mod fake_logger;
 pub mod freshness;
 pub mod listeners;
+pub mod location;
 pub mod logging;
 pub mod n1mm;
 pub mod settings;

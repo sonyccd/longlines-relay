@@ -8,6 +8,9 @@ timestamp zone and `IsOriginal`), and mark them "captured" here with the logger 
 | File | Origin | Notes |
 | --- | --- | --- |
 | `n1mm-contactinfo.xml` | Synthesized from the N1MM Logger+ appendix sample ("External UDP Broadcasts", n1mmwp.hamdocs.com/appendices/external-udp-broadcasts/) | The appendix's typos are corrected: the call `WlAW` (lower-case L) is `W1AW`, and the unclosed `<run1run2>1<run1run2>` is closed. `IsOriginal` is `True` here (the sample has `False`, which is the forwarded case below). `rxfreq` 352519 is 3525.19 kHz (10 Hz units). |
+| `n1mm-contactinfo-sweepstakes.xml` | Synthesized from `n1mm-contactinfo.xml` with an ARRL Sweepstakes exchange | `section` is `NC`, `prec` `A`, `ck` `93`: the section is exactly a state code, so the contact carries `state` NC. |
+| `n1mm-contactinfo-vhf.xml` | Synthesized from `n1mm-contactinfo.xml` with a VHF contest exchange | `gridsquare` is `fm05pu` (lower case, as some loggers type it), sent as `FM05PU`; 50.125 MHz USB. |
+| `n1mm-contactinfo-qso-party.xml` | Synthesized from `n1mm-contactinfo.xml` with a state QSO party exchange | `exchange1` is `VA`, an out-of-state station's location. Capture wanted to confirm which element N1MM fills for each contest. |
 | `n1mm-contactinfo-forwarded.xml` | Same sample, `IsOriginal` `False` as printed in the appendix | A contact another networked N1MM station is forwarding. The relay drops it. |
 | `n1mm-contactreplace.xml` | Synthesized from the appendix: same fields as `contactinfo`, root `contactreplace`, plus `oldtimestamp` / `oldcall` | The frequency moved up 1 kHz, as an edit would. Same `ID`. |
 | `n1mm-contactdelete.xml` | Synthesized from the appendix's `contactdelete` field list | Only `app`, `timestamp`, `call`, `contestnr`, `StationName`, `ID`. |
