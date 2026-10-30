@@ -338,8 +338,9 @@ Content-Type: application/json
 
 Bearer token with `contacts:write`. Submits a batch of logged contacts.
 
-The route is the same on v1 and v2: the same request, semantics, response and limits. The
-examples use v1 paths; on v2 the path is `/relay/v2/contacts`.
+The route is the same on v1 and v2: the same request, semantics, response and limits, except
+that a v2 upsert item may carry the optional `state` and `gridsquare` fields (6.1). The examples
+use v1 paths; on v2 the path is `/relay/v2/contacts`.
 
 ### 6.1 Request
 
@@ -361,9 +362,31 @@ Each item:
 | `mode` | string | required | ignored | As logged, trimmed and upper-cased, 1 to 32 characters. |
 | `timestamp_utc` | string | required | required | The contact's logged time, `YYYY-MM-DDTHH:MM:SSZ` exactly. |
 | `logger_app` | string or null | optional | ignored | The logger's `app` value, at most 64 characters; null or absent when the packet has none. |
+| `state` | string | optional, v2 | ignored | The worked station's US state or the District of Columbia: exactly one of the 51 upper-case two-letter postal codes in Appendix B. Absent when the logger gave none; see "Location fields" below. |
+| `gridsquare` | string | optional, v2 | ignored | The worked station's Maidenhead locator as the logger gave it, upper-cased: 4, 6 or 8 characters, matching `^[A-R]{2}[0-9]{2}([A-X]{2}([0-9]{2})?)?$`. Absent when the logger gave none. |
 
 A delete item needs only `external_id`, `op` and `timestamp_utc`; any other fields on it are
 ignored.
+
+Location fields (v2). `state` and `gridsquare` describe the worked station, never the user's
+own station, and come only from the logger's packet:
+
+- The client sends `state` only when one of the packet's `state`, `section`, `qth` or
+  `exchange1` elements (N1MM element names, matched without regard to case), trimmed and
+  upper-cased, is exactly a code in Appendix B. A longer value is never shortened or mapped:
+  an ARRL section such as `ENY`, a county or a province gives no `state`. When two of those
+  elements hold different codes, the client sends no `state`.
+- The client sends `gridsquare` only when the packet's `gridsquare` element, trimmed and
+  upper-cased, matches the rule in the table. Any other value (2 or 10 characters, a field
+  letter past `R`, a subsquare letter past `X`) gives no `gridsquare`.
+- The client never works either out from the callsign, a lookup, the frequency or the user's
+  own location, and never sends either as null or an empty string: a field it has no value
+  for is absent.
+- Neither is part of `external_id` (6.2) or of a contact's content (6.3).
+- A v1 server, and a server from before these fields, ignores them as unknown fields (section
+  2). A v2 server that knows them MUST NOT reject an item because of them: a `state` or
+  `gridsquare` that breaks its rule is treated as absent, so a contact is never lost to an
+  optional field. The client MUST NOT send them on v1.
 
 "Whitespace or control characters" in `mycall` and `call` means Unicode White_Space, U+FEFF and
 the general category Cc (which holds U+0000 to U+001F and U+007F to U+009F).
@@ -383,7 +406,9 @@ is still applied.
   (category Cc) is treated as no ID: the server would refuse the whole request for it.
 - Otherwise `external_id` MUST be the lower-case hex SHA-256 of the UTF-8 string
   `mycall|call|band|mode|timestamp_utc`: the item's own field values, exactly as sent, joined
-  by `|`, with an empty string for a null `band`.
+  by `|`, with an empty string for a null `band`. No other field is hashed: `logger_app`,
+  `state` and `gridsquare` never are, so a contact's `external_id` does not change when the
+  logger adds or edits them.
 - Without a logger ID an edit in the logger cannot be followed: an edited contact gets a new
   `external_id` and becomes a new spot, and a delete matches only when every hashed field is
   unchanged.
@@ -408,7 +433,9 @@ Example: `KK4PWJ|W1AW|20m|CW|2026-10-28T21:14:00Z` gives
 - Two upserts carry the same content when `mycall`, `call`, `frequency_hz`, `mode` and
   `timestamp_utc` are equal after the server's normalization (trimmed and upper-cased). The
   request's `band` is not compared: the server's band follows from `frequency_hz`. `logger_app`,
-  `relay_version` and fields the server does not know are not content.
+  `state`, `gridsquare`, `relay_version` and fields the server does not know are not content.
+  An upsert that differs from the live contact only in `state` or `gridsquare` answers
+  `unchanged`; the server MAY store the new values.
 
 | Op | Existing contact for (account, `external_id`) | Effect | `status` |
 | --- | --- | --- | --- |
@@ -537,6 +564,25 @@ Content-Type: application/json
     {"external_id": "0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e", "status": "retracted"},
     {"external_id": "f79e495bd37010e153bd2da07fd4eb22a248faa643887dffdd1d33e918e1c91c", "status": "rejected", "reason": "mycall_mismatch"}
   ]
+}
+```
+
+On v2 an upsert item may also carry the location fields. This item is the first one above,
+logged in a contest where the other station sent the section `NC` and the grid `FM05pu`:
+
+```json
+{
+  "external_id": "4f0d1c2b3a5e4d6f8a9b0c1d2e3f4a5b",
+  "op": "upsert",
+  "mycall": "KK4PWJ",
+  "call": "W1AW",
+  "frequency_hz": 14025000,
+  "band": "20m",
+  "mode": "CW",
+  "timestamp_utc": "2026-10-28T21:14:00Z",
+  "logger_app": "N1MM",
+  "state": "NC",
+  "gridsquare": "FM05PU"
 }
 ```
 
@@ -972,3 +1018,13 @@ band table (`supabase/functions/_shared/bands.ts`).
 
 The comparison is on `frequency_hz / 1000` as a real number, so 14025000 Hz (14025 kHz) is
 `20m` and 14500500 Hz (14500.5 kHz) is null.
+
+## Appendix B. US state codes
+
+The values `state` (6.1) may take: the postal codes of the 50 states and the District of
+Columbia, upper case. Territories (`PR`, `VI`, `GU`, `AS`, `MP`) and other countries'
+subdivisions are not in the list.
+
+`AK` `AL` `AR` `AZ` `CA` `CO` `CT` `DC` `DE` `FL` `GA` `HI` `IA` `ID` `IL` `IN` `KS` `KY` `LA`
+`MA` `MD` `ME` `MI` `MN` `MO` `MS` `MT` `NC` `ND` `NE` `NH` `NJ` `NM` `NV` `NY` `OH` `OK` `OR`
+`PA` `RI` `SC` `SD` `TN` `TX` `UT` `VA` `VT` `WA` `WI` `WV` `WY`

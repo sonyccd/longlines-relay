@@ -68,6 +68,26 @@ mod tests {
     }
 
     #[test]
+    fn state_codes_match_the_contract() {
+        let contract = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/contract.md"
+        ));
+        let appendix = contract
+            .split("## Appendix B.")
+            .nth(1)
+            .expect("the contract has Appendix B");
+        let list = appendix
+            .split("\n\n")
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .last()
+            .unwrap();
+        let codes: Vec<&str> = list.split('`').skip(1).step_by(2).collect();
+        assert_eq!(codes, US_STATE_CODES);
+    }
+
+    #[test]
     fn a_state_is_exactly_a_code() {
         assert_eq!(us_state("NC"), Some("NC"));
         assert_eq!(us_state(" nc "), Some("NC"));

@@ -14,7 +14,8 @@ logger needs three things set:
    is posted exactly as you logged it.
 
 Then log a contact. It shows up under "Contacts seen" in the relay, and on Long Lines a moment
-later. Turn on test mode in the relay first if you want to check the setup without posting
+later. When the contact holds the other station's US state or grid square, the relay sends that
+too (see [State and grid square](#state-and-grid-square)). Turn on test mode in the relay first if you want to check the setup without posting
 anything.
 
 | Logger | Works with the relay | Notes |
@@ -31,6 +32,21 @@ address.
 
 The relay can also go the other way: its [DX cluster](#dx-cluster) shows the spots that match
 your Long Lines connections in your logger's bandmap.
+
+## State and grid square
+
+Long Lines can use the other station's US state and grid square, for example to mark a state
+worked on a needs list. The relay sends them only when your logger puts them in the contact
+packet; it never looks a callsign up.
+
+- **State.** Sent when the contact's `state`, `section`, `qth` or `exchange1` field is exactly a
+  state's two-letter code, such as `NC`, or `DC`. In ARRL Sweepstakes and Field Day the section
+  is often the state. A longer value, such as the section `ENY` or a county, sends no state, and
+  neither do two fields that name different states.
+- **Grid square.** Sent when the contact's `gridsquare` field is a 4, 6 or 8 character locator,
+  such as `FM05` or `FM05pu`. VHF contests log it.
+
+Neither changes how the relay recognises an edit or a delete of the contact.
 
 ## N1MM Logger+
 
@@ -220,6 +236,12 @@ Source: [External UDP broadcasts](https://n1mmwp.hamdocs.com/appendices/external
   logged on.
 - `oldtimestamp` and `oldcall` exist for edits that change the time or the call.
 - `band` is a decimal string (`3.5`). The relay works out the band from the frequency instead.
+- `gridsquare` is the worked station's locator, filled in contests whose exchange holds one.
+  The relay sends it, upper-cased, when it is a valid 4, 6 or 8 character locator.
+- `exchange1`, `section` and `qth` hold parts of the received exchange; which one holds the
+  other station's location depends on the contest (`section` in Sweepstakes). The relay sends
+  `state` when one of them is exactly a US state or DC code. There is no `state` element; one
+  sent by another logger in this format is read the same way.
 
 ### DXLog.net
 
@@ -269,6 +291,9 @@ Source: the Not1MM source code ([github.com/mbridak/not1mm](https://github.com/m
 
 - The N1MM Logger+ timestamp's time zone, from a capture on Windows.
 - A real packet from DXLog.net and from MacLoggerDX, kept as test fixtures.
+- Which of `exchange1`, `section` and `qth` N1MM Logger+ fills with the received location in
+  each contest (state QSO parties, the ARRL 10 and 160 m contests), and whether Not1MM,
+  DXLog.net and MacLoggerDX send `gridsquare`.
 - That N1MM Logger+ connects to the relay's DX cluster, accepts its `login:` prompt and
   greeting, and puts the test spot in the bandmap, from this computer and, with the network
   setting on, from a second computer.
