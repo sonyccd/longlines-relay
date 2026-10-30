@@ -31,7 +31,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10
         with:
           toolchain: stable
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Format
         run: cargo fmt --all -- --check
@@ -39,8 +39,21 @@ jobs:
         run: cargo clippy -p relay-core --all-targets --locked -- -D warnings
       - name: Clippy with the OS credential store
         run: cargo clippy -p relay-core --all-targets --features keyring --locked -- -D warnings
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-llvm-cov
+      # Runs the tests under coverage instrumentation, so a failing test fails this step.
       - name: Test
-        run: cargo test -p relay-core --locked
+        run: cargo llvm-cov -p relay-core --locked --lcov --output-path lcov.info
+      # Pull requests from forks get no secrets; Codecov accepts those uploads without a token
+      # on a public repository. An outage at Codecov doesn't fail the build.
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: core
+          disable_search: true
+          fail_ci_if_error: false
 
   web:
     name: Window
@@ -57,7 +70,14 @@ jobs:
       - name: Lint
         run: npm run lint
       - name: Test
-        run: npm test
+        run: npm run coverage
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/lcov.info
+          flags: window
+          disable_search: true
+          fail_ci_if_error: false
       - name: Build
         run: npm run build
 
