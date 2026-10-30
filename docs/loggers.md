@@ -36,7 +36,7 @@ your Long Lines connections in your logger's bandmap.
 ## State and grid square
 
 Long Lines can use the other station's US state and grid square, for example to mark a state
-worked on a needs list. The relay sends them only when your logger puts them in the contact
+worked toward a goal. The relay sends them only when your logger puts them in the contact
 packet; it never looks a callsign up.
 
 - **State.** Sent when the contact's `state`, `section`, `qth` or `exchange1` field is exactly a
