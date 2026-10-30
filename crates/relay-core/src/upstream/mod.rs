@@ -46,6 +46,13 @@ pub struct QueuedContact {
     /// `YYYY-MM-DDTHH:MM:SSZ`.
     pub timestamp_utc: String,
     pub logger_app: Option<String>,
+    /// The worked station's US state or DC code (upserts only). Rows queued by an older build
+    /// have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// The worked station's grid square, upper-cased (upserts only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gridsquare: Option<String>,
 }
 
 /// One item of `POST /contacts`, as sent.
@@ -67,6 +74,11 @@ pub struct WireItem {
     pub timestamp_utc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logger_app: Option<Option<String>>,
+    /// Optional on an upsert and left out when the logger gave none; never on a delete.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gridsquare: Option<String>,
 }
 
 impl QueuedContact {
@@ -83,6 +95,8 @@ impl QueuedContact {
                 mode: Some(self.mode.clone()),
                 timestamp_utc: self.timestamp_utc.clone(),
                 logger_app: Some(self.logger_app.clone()),
+                state: self.state.clone(),
+                gridsquare: self.gridsquare.clone(),
             },
             Op::Delete => WireItem {
                 external_id: self.external_id.clone(),
@@ -94,6 +108,8 @@ impl QueuedContact {
                 mode: None,
                 timestamp_utc: self.timestamp_utc.clone(),
                 logger_app: None,
+                state: None,
+                gridsquare: None,
             },
         }
     }
@@ -116,6 +132,8 @@ mod tests {
             mode: "CW".into(),
             timestamp_utc: "2026-10-28T21:14:00Z".into(),
             logger_app: None,
+            state: None,
+            gridsquare: None,
         }
     }
 
@@ -143,8 +161,38 @@ mod tests {
     }
 
     #[test]
+    fn upsert_carries_state_and_grid_only_when_known() {
+        let mut c = contact(Op::Upsert);
+        c.state = Some("NC".into());
+        let wire = serde_json::to_value(c.to_wire()).unwrap();
+        assert_eq!(wire["state"], json!("NC"));
+        assert!(wire.get("gridsquare").is_none());
+        c.state = None;
+        c.gridsquare = Some("FM05PU".into());
+        let wire = serde_json::to_value(c.to_wire()).unwrap();
+        assert!(wire.get("state").is_none());
+        assert_eq!(wire["gridsquare"], json!("FM05PU"));
+    }
+
+    #[test]
+    fn queued_rows_from_an_older_build_still_read() {
+        let mut c = contact(Op::Upsert);
+        let old = serde_json::to_value(&c).unwrap();
+        assert!(old.get("state").is_none() && old.get("gridsquare").is_none());
+        let back: QueuedContact = serde_json::from_value(old).unwrap();
+        assert_eq!(back, c);
+        c.state = Some("NC".into());
+        c.gridsquare = Some("FM05".into());
+        let row = serde_json::to_string(&c).unwrap();
+        assert_eq!(serde_json::from_str::<QueuedContact>(&row).unwrap(), c);
+    }
+
+    #[test]
     fn delete_carries_only_id_op_and_time() {
-        let wire = serde_json::to_value(contact(Op::Delete).to_wire()).unwrap();
+        let mut c = contact(Op::Delete);
+        c.state = Some("NC".into());
+        c.gridsquare = Some("FM05".into());
+        let wire = serde_json::to_value(c.to_wire()).unwrap();
         assert_eq!(
             wire,
             json!({

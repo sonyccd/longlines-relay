@@ -382,6 +382,9 @@ mod tests {
             mode: "CW".into(),
             timestamp_utc: logged.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             logger_app: Some("N1MM".into()),
+            // Round-trips through the stored row like every other field.
+            state: (op == Op::Upsert).then(|| "NC".into()),
+            gridsquare: (op == Op::Upsert).then(|| "FM05PU".into()),
         }
     }
 

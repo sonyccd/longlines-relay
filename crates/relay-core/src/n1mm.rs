@@ -6,7 +6,8 @@
 //!
 //! Logger facts this follows (see `docs/loggers.md`): `rxfreq` / `txfreq` are in units of 10 Hz;
 //! `timestamp` is `YYYY-MM-DD HH:MM:SS` in UTC; `ID` is the per-contact GUID; `IsOriginal` is
-//! `False` on a contact another networked N1MM station is forwarding.
+//! `False` on a contact another networked N1MM station is forwarding. The worked station's US
+//! state and grid square come from [`crate::location`].
 
 use std::collections::HashMap;
 
@@ -14,6 +15,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use quick_xml::events::Event as XmlEvent;
 use quick_xml::Reader;
 use serde::Serialize;
+
+use crate::location;
 
 /// The highest frequency the server accepts, in Hz.
 pub const MAX_FREQUENCY_HZ: u64 = 300_000_000_000;
@@ -52,6 +55,12 @@ pub struct LoggedContact {
     pub is_original: bool,
     /// The sending computer's name (N1MM `StationName`).
     pub station_name: Option<String>,
+    /// The worked station's US state or DC postal code, when `state`, `section`, `qth` or
+    /// `exchange1` is exactly one and no two of them name different states.
+    pub state: Option<String>,
+    /// The worked station's Maidenhead locator (`gridsquare`), upper-cased, when it is a valid
+    /// 4, 6 or 8 character one.
+    pub gridsquare: Option<String>,
 }
 
 /// A parsed packet.
@@ -189,8 +198,21 @@ fn contact_from(kind: ContactKind, fields: &HashMap<String, String>) -> LoggedCo
         id: get("id"),
         is_original: get("isoriginal").as_deref().is_none_or(|v| !is_false(v)),
         station_name: get("stationname"),
+        state: location::us_state_of(
+            STATE_FIELDS
+                .iter()
+                .filter_map(|name| fields.get(*name).map(String::as_str)),
+        )
+        .map(str::to_string),
+        gridsquare: get("gridsquare").as_deref().and_then(location::gridsquare),
     }
 }
+
+/// The contact fields that can hold the worked station's state, lower-case. N1MM has no `state`
+/// element; other loggers that send its format may. Which of `section`, `qth` and `exchange1`
+/// N1MM fills with the received location depends on the contest (`section` in Sweepstakes and
+/// Field Day), so each is read and only an exact state code counts.
+const STATE_FIELDS: [&str; 4] = ["state", "section", "qth", "exchange1"];
 
 /// A frequency in 10 Hz units, as N1MM and Not1MM send it, converted to Hz.
 fn frequency(value: Option<&str>) -> Option<u64> {
